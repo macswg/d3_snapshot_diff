@@ -82,6 +82,10 @@
 <header>
   <h1>Showfile snapshot diff</h1>
   <div class="slot">
+    <label>Folder</label>
+    <button type="button" id="pickDir">Choose folder…</button>
+  </div>
+  <div class="slot">
     <label>Before</label>
     <div class="drop" id="dropA" data-slot="a">Choose or drop a snapshot…</div>
     <input type="file" id="fileA" accept=".json,application/json">
@@ -90,10 +94,6 @@
     <label>After</label>
     <div class="drop" id="dropB" data-slot="b">Choose or drop a snapshot…</div>
     <input type="file" id="fileB" accept=".json,application/json">
-  </div>
-  <div class="slot">
-    <label>Folder</label>
-    <button type="button" id="pickDir">Choose folder…</button>
   </div>
 </header>
 
