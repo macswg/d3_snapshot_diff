@@ -89,6 +89,47 @@ if (!target) {
         JSON.stringify(ins.counts) + ' :: ' + findings(ins.nodes).join(' | '));
 }
 
+console.log('\ndeletion');
+// Mirror of the insertion case. Dropping the top layer must be one removal,
+// not a cascade down the rest of the track.
+if (!target) {
+  check('a track with layers exists to test against', false);
+} else {
+  var dropped = JSON.parse(JSON.stringify(A));
+  var dt = dropped.tracks.filter(function (t) { return t.id === target.id; })[0];
+  var goneLayer = dt.layers.shift();
+  dt.layerCount = dt.layers.length;
+  var del = diff.diffSnapshots(A, dropped);
+  check('removing the top layer is one removal, no cascade',
+        del.counts.removed === 1 && del.counts.added === 0,
+        JSON.stringify(del.counts) + ' :: ' + findings(del.nodes).join(' | '));
+  var goneKey = (goneLayer.groupPath || []).concat([goneLayer.name]).join(' / ');
+  check('the removal names the layer that went',
+        findings(del.nodes).indexOf('removed layer ' + goneKey) !== -1,
+        findings(del.nodes).join(' | '));
+}
+
+// The shared-track case in reverse: a track referenced by two transports is
+// stored once, so deleting it must report once -- not per referencing setlist.
+var refCount = {};
+A.transports.forEach(function (tr) {
+  (tr.trackRefs || []).forEach(function (id) { refCount[id] = (refCount[id] || 0) + 1; });
+});
+var sharedId = Object.keys(refCount).filter(function (id) { return refCount[id] > 1; })[0];
+if (!sharedId) {
+  console.log('  skip a track shared by two transports (none in this capture)');
+} else {
+  var cut = JSON.parse(JSON.stringify(A));
+  cut.tracks = cut.tracks.filter(function (t) { return String(t.id) !== sharedId; });
+  cut.transports.forEach(function (tr) {
+    tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return String(id) !== sharedId; });
+  });
+  var gone = findings(diff.diffSnapshots(A, cut).nodes)
+    .filter(function (s) { return /^removed track /.test(s); });
+  check('a removed shared track is reported once, not per referencing transport',
+        gone.length === 1, gone.join(' | '));
+}
+
 console.log('\nfloat tolerance');
 // Re-derived beats come back off the director as floats; a capture that yields
 // 60.0000000001 is the same position, not an edit.
