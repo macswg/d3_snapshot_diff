@@ -21,9 +21,9 @@
   }
   h1 { font-size: 16px; font-weight: 600; margin: 0 auto 0 0; letter-spacing: .01em; }
   .slot { display: flex; flex-direction: column; gap: 5px; }
-  /* flex-basis 100% consumes the row, so the pair always wraps below the
-     folder button rather than trailing it when the window is wide. */
-  .pair { display: flex; gap: 20px; flex-basis: 100%; align-items: flex-end; }
+  /* flex-basis 100% consumes the row, so the folder slot always drops to its
+     own line rather than trailing the title when the window is wide. */
+  .slot.row { flex-basis: 100%; align-items: flex-start; }
   .slot label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .07em; }
   .drop {
     border: 1px dashed var(--edge); border-radius: 6px; padding: 9px 13px;
@@ -84,21 +84,19 @@
 
 <header>
   <h1>Showfile snapshot diff</h1>
-  <div class="slot">
+  <div class="slot row">
     <label>Folder</label>
     <button type="button" id="pickDir">Choose folder…</button>
   </div>
-  <div class="pair">
-    <div class="slot">
-      <label>Before</label>
-      <div class="drop" id="dropA" data-slot="a">Choose or drop a snapshot…</div>
-      <input type="file" id="fileA" accept=".json,application/json">
-    </div>
-    <div class="slot">
-      <label>After</label>
-      <div class="drop" id="dropB" data-slot="b">Choose or drop a snapshot…</div>
-      <input type="file" id="fileB" accept=".json,application/json">
-    </div>
+  <div class="slot">
+    <label>Before</label>
+    <div class="drop" id="dropA" data-slot="a">Choose or drop a snapshot…</div>
+    <input type="file" id="fileA" accept=".json,application/json">
+  </div>
+  <div class="slot">
+    <label>After</label>
+    <div class="drop" id="dropB" data-slot="b">Choose or drop a snapshot…</div>
+    <input type="file" id="fileB" accept=".json,application/json">
   </div>
 </header>
 
