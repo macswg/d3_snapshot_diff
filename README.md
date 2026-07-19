@@ -3,13 +3,24 @@
 Visual diff for two `susan_summary` snapshot logs — what changed in the showfile
 between one capture and the next.
 
+`susan_summary` is a [disguise](https://www.disguise.one/) d3 plugin that
+periodically captures a JSON snapshot of the showfile — transports, tracks,
+layers, media and cues — to disk. This repo doesn't produce those snapshots;
+it just reads two of the plugin's JSON captures and renders a semantic tree
+diff between them, so you can see what actually changed in a show over time
+without combing through raw JSON.
+
 ![The viewer comparing two captures](screenshot.png)
 
 ## Use it
 
-Open `index.html` in a browser. Pick a **Before** and an **After** (click or
-drag), and read the tree. That's the whole thing — no build step, no server, no
-dependencies.
+This is designed to run entirely in the browser, client-side, with no build
+step and no server. Use it hosted at **https://macswg.github.io/d3_snapshot_diff/**,
+or open `index.html` locally straight from disk — both work identically since
+nothing leaves the browser.
+
+Pick a **Before** and an **After** (click or drag), and read the tree. That's
+the whole thing.
 
 **Choose folder…** does it in one step: point it at a captures directory and it
 loads the two most recent snapshots, previous into Before and latest into After.
