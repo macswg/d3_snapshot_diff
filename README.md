@@ -122,7 +122,7 @@ tolerance, derived counters, running order.
 
 ## Known gaps
 
-- The **"show unchanged context"** checkbox in the toolbar is not wired up. The
-  diff is changed-only; the control is inert.
+- The diff is changed-only. Unchanged entities are never emitted, so there is no
+  way to show surrounding context the way `diff -U` does.
 - Only two snapshots at a time. A folder-wide timeline ("show me this project
   across the week") would need a different UI and is not built.
