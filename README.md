@@ -11,10 +11,11 @@ Open `index.html` in a browser. Pick a **Before** and an **After** (click or
 drag), and read the tree. That's the whole thing — no build step, no server, no
 dependencies.
 
-Because it runs over `file://` it also sidesteps the iframe sandbox limits that
-blocked browser-side export inside Designer's plugin launcher (see the plugin's
-CLAUDE.md — `showSaveFilePicker`, anchor downloads and clipboard writes are all
-refused in there). Nothing here runs inside Designer.
+**Choose folder…** does it in one step: point it at a captures directory and it
+loads the two most recent snapshots, previous into Before and latest into After.
+Order comes from the timestamp at the head of the filename
+(`2026-07-18_20-17-27_…`), falling back to the file's own date for names without
+one — the toolbar says how many were ordered that way.
 
 ## Reading the output
 

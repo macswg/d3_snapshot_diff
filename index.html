@@ -31,6 +31,12 @@
   .drop.over { border-color: var(--add-fg); color: var(--add-fg); }
   .drop .stamp { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
   input[type=file] { display: none; }
+  #pickDir {
+    border: 1px solid var(--edge); border-radius: 6px; padding: 9px 13px;
+    background: var(--panel); color: var(--dim); font: inherit; font-size: 13px;
+    cursor: pointer; transition: border-color .12s, color .12s;
+  }
+  #pickDir:hover { color: var(--fg); border-color: var(--dim); }
 
   #bar {
     padding: 10px 24px; border-bottom: 1px solid var(--edge);
@@ -85,6 +91,10 @@
     <div class="drop" id="dropB" data-slot="b">Choose or drop a snapshot…</div>
     <input type="file" id="fileB" accept=".json,application/json">
   </div>
+  <div class="slot">
+    <label>Folder</label>
+    <button type="button" id="pickDir">Choose folder…</button>
+  </div>
 </header>
 
 <div id="bar">
@@ -108,6 +118,52 @@ function wire(dropId, inputId, slot) {
     e.preventDefault(); drop.classList.remove('over');
     if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0], slot, drop);
   });
+}
+
+/* Capture time for ordering, filename first.
+ *
+ * Anchored at the start on purpose: a name like
+ *   2026-07-18_20-17-27_plugins_testing_feb_2026.json
+ * carries a second, unrelated date in the project part ("feb_2026"). An
+ * unanchored search could bind to that and order the folder by project name.
+ * Only the leading stamp is the capture time.
+ */
+var STAMP = /^(\d{4})-(\d{2})-(\d{2})[_T](\d{2})[-:](\d{2})[-:](\d{2})/;
+
+function captureTime(file) {
+  var m = STAMP.exec(file.name);
+  if (m) {
+    // Local time, matching how the plugin stamps names. Month is 0-based.
+    var t = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+    if (!isNaN(t)) return { t: t, from: 'name' };
+  }
+  // Fallback: the browser exposes last-modified, not creation time. For files
+  // written once and never touched they agree; for edited ones this is the
+  // edit. Flagged in the UI so a surprising order is explainable.
+  return { t: file.lastModified || 0, from: 'mtime' };
+}
+
+function loadFolder(files) {
+  var snapshots = files.filter(function (f) { return /\.json$/i.test(f.name); });
+  if (snapshots.length < 2) {
+    fail('need at least two .json snapshots in that folder — found ' + snapshots.length);
+    return;
+  }
+  var dated = snapshots.map(function (f) {
+    var c = captureTime(f);
+    return { file: f, t: c.t, from: c.from };
+  }).sort(function (x, y) {
+    return x.t - y.t || x.file.name.localeCompare(y.file.name);
+  });
+
+  var latest = dated[dated.length - 1], previous = dated[dated.length - 2];
+  load(previous.file, 'a', document.getElementById('dropA'));
+  load(latest.file, 'b', document.getElementById('dropB'));
+
+  var guessed = dated.filter(function (d) { return d.from === 'mtime'; }).length;
+  var note = snapshots.length + ' snapshots · comparing the two most recent';
+  if (guessed) note += ' · ' + guessed + ' ordered by file date (no timestamp in name)';
+  document.getElementById('pickDir').textContent = note;
 }
 
 function load(file, slot, drop) {
@@ -189,6 +245,28 @@ function render() {
 
 wire('dropA', 'fileA', 'a');
 wire('dropB', 'fileB', 'b');
+
+(function () {
+  var btn = document.getElementById('pickDir');
+
+  btn.addEventListener('click', function () {
+    window.showDirectoryPicker().then(function (dir) {
+      var reads = [];
+      return (async function () {
+        for await (var entry of dir.values()) {
+          if (entry.kind === 'file' && /\.json$/i.test(entry.name)) reads.push(entry.getFile());
+        }
+        return Promise.all(reads);
+      })();
+    }).then(function (files) {
+      document.getElementById('err').hidden = true;
+      loadFolder(files);
+    }).catch(function (e) {
+      if (e && e.name === 'AbortError') return;   // user closed the picker
+      fail('could not read that folder: ' + e.message);
+    });
+  });
+})();
 </script>
 </body>
 </html>
