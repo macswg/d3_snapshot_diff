@@ -108,6 +108,7 @@ of `diff.js`.
 index.html        UI, rendering and file loading. All the CSS.
 diff.js           The engine. No DOM access — usable from node.
 tools/selftest.js Regression checks against real captures.
+tools/deploy.sh   Version bump, commit, push, wait for Pages.
 ```
 
 `diff.js` exports `diffSnapshots(a, b)` under CommonJS as well as defining it
@@ -122,6 +123,30 @@ globally for the page, which is why the self-test can `require` it directly.
   nodes:  [ { kind, label, detail?, changes?: [{field, from, to}], children?: [] } ]
 }
 ```
+
+## Deploying
+
+GitHub Pages serves `main` at the repo root with no build step, so pushing is
+the deploy. Do it through the script rather than by hand:
+
+```
+tools/deploy.sh "commit message"                 # patch: 1.0.0 -> 1.0.1
+tools/deploy.sh minor "commit message"           # 1.0.0 -> 1.1.0
+LOGS=/path/to/captures tools/deploy.sh "…"       # gate on the selftest
+```
+
+It bumps the version in the footer, commits, tags `vX.Y.Z`, pushes, then polls
+the live page until it serves the new version — the Pages build API lags behind
+the CDN, so the served file is the only honest signal that a deploy landed.
+
+The version lives in exactly one place, the `#ver` span in `index.html`, and is
+rewritten by the script. Don't edit it by hand; a footer nobody remembers to
+update is worse than none, because it looks authoritative while being wrong.
+
+The selftest gates the deploy when it can find captures to run against —
+`LOGS`, or `../d3plg_susan_summary/example_logs` by default. If neither exists
+the script warns and deploys anyway rather than blocking on a machine that
+simply doesn't have the logs checked out.
 
 ## Tests
 
