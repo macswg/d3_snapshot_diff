@@ -20,6 +20,15 @@
     display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;
   }
   h1 { font-size: 16px; font-weight: 600; margin: 0 auto 0 0; letter-spacing: .01em; }
+  /* flex-basis 100% for the same reason as .slot.row — the instructions take
+     the whole line under the title instead of trailing it. */
+  .how {
+    flex-basis: 100%; margin: 0; max-width: 78ch;
+    font-size: 12.5px; color: var(--dim);
+  }
+  .how b { color: var(--fg); font-weight: 600; }
+  .how code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+  .how .a { color: var(--add-fg); } .how .r { color: var(--rm-fg); } .how .c { color: var(--ch-fg); }
   .slot { display: flex; flex-direction: column; gap: 5px; }
   /* flex-basis 100% consumes the row, so the folder slot always drops to its
      own line rather than trailing the title when the window is wide. */
@@ -84,6 +93,17 @@
 
 <header>
   <h1>Showfile snapshot diff</h1>
+  <p class="how">
+    Choose the folder your snapshots are saved in and the two most recent are
+    compared automatically — or set <b>Before</b> and <b>After</b> yourself by
+    clicking either box or dropping a <code>.json</code> snapshot on it.
+    A Google&nbsp;Drive folder works too, as long as Drive for desktop has it
+    mounted and the files are available offline.
+    Everything below is what changed from Before to After:
+    <span class="a">+ added</span>, <span class="r">− removed</span>,
+    <span class="c">~ changed</span>. Files are read in your browser and never
+    uploaded.
+  </p>
   <div class="slot row">
     <label>Folder</label>
     <button type="button" id="pickDir">Choose folder…</button>

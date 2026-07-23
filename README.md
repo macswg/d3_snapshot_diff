@@ -42,8 +42,15 @@ tally in the toolbar counts every node in the tree, including nested ones.
 
 ## Logs on a shared drive
 
-Point Google Drive Desktop at the shared logs folder and pick files from that
-local path.
+Google Drive for desktop mounts Drive as an ordinary folder
+(`~/Library/CloudStorage/GoogleDrive-<account>/…` on macOS,
+`G:\My Drive\…` on Windows), so **Choose folder…** picks a shared captures
+directory exactly like a local one — the picker never learns it is a network
+mount. Dropbox, OneDrive and an SMB share all work the same way.
+
+One caveat: files Drive is holding *online only* have no bytes on disk, and
+reading one can stall or fail. Right-click the captures folder → **Available
+offline** and that stops.
 
 There is deliberately no Drive API integration. It would need OAuth, client
 credentials and a server to hold them — a build step and a deployment, for the
