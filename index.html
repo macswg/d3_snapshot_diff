@@ -77,7 +77,7 @@
   #summary {
     padding: 14px 24px 16px; border-bottom: 1px solid var(--edge);
     display: grid; gap: 18px 28px;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
   #summary[hidden] { display: none; }
   #summary h2 {
@@ -88,7 +88,13 @@
   #summary .n { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg); }
   #summary .of { color: var(--dim); }
   #summary .a { color: var(--add-fg); } #summary .r { color: var(--rm-fg); } #summary .c { color: var(--ch-fg); }
-  #summary .grow { margin-left: auto; }
+  /* flex:none + nowrap so a long track name never splits the count across two
+     lines — "94 changes" broke to "94" / "changes" under a wrapped label.
+     min-width:0 lets the name shrink instead of forcing the count out. */
+  #summary .grow { margin-left: auto; flex: none; white-space: nowrap; }
+  #summary .name {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .note { color: var(--dim); font-size: 12px; padding: 2px 0 0; }
   mark { background: #4a4326; color: #f2d98a; border-radius: 2px; padding: 0 1px; }
 
@@ -176,7 +182,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v1.2.0</span>
+  <span id="ver">v1.2.1</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -381,7 +387,11 @@ function renderSummary(result) {
   var s = summarize(result);
   var cols = [];
 
-  var rows = s.entities.map(function (e) {
+  // The snapshot row is always ~1 and says nothing: the tree's own first row
+  // spells out which of project/scope/activeTransport/counts moved. Counting it
+  // here just added a line that looked like a tally but never varied.
+  var rows = s.entities.filter(function (e) { return e.entity !== 'snapshot'; })
+    .map(function (e) {
     var bits = [];
     if (e.added)   bits.push('<span class="a">+' + e.added + '</span>');
     if (e.removed) bits.push('<span class="r">−' + e.removed + '</span>');
@@ -412,7 +422,9 @@ function renderSummary(result) {
   var spots = s.hotspots.filter(function (h) { return h.count > 1; }).slice(0, 6);
   if (spots.length) {
     cols.push('<div><h2>Most affected</h2>' + spots.map(function (h) {
-      return '<div class="line"><span>' + esc(h.label) + '</span>' +
+      // title so the full name is still reachable when the ellipsis bites.
+      return '<div class="line"><span class="name" title="' + esc(h.label) + '">' +
+             esc(h.label) + '</span>' +
              '<span class="grow of">' + plural(h.count - 1, 'change') + '</span></div>';
     }).join('') + '</div>');
   }
