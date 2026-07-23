@@ -57,6 +57,43 @@ var same = diff.diffSnapshots(A, JSON.parse(JSON.stringify(A)));
 check('a snapshot against itself reports nothing',
       same.nodes.length === 0, JSON.stringify(same.counts));
 
+console.log('\nrepeated layers (duplicate identity keys)');
+// One clip placed several times down a track gives several layers sharing
+// groupPath + name. Keyed into a plain map that is last-write-wins, so every
+// placement compared against the same one and all but the first reported a
+// bogus tStart/tEnd change -- a snapshot diffed against a copy of itself came
+// back with hundreds of changes. Built explicitly rather than trusted to the
+// corpus: the capture this suite defaults to has no repeats, which is why the
+// identity check above passed while the bug was live.
+var repeated = JSON.parse(JSON.stringify(A));
+var rt = repeated.tracks.filter(function (t) { return (t.layers || []).length; })[0];
+if (!rt) {
+  check('a track with layers exists to test against', false);
+} else {
+  var proto = rt.layers[0];
+  for (var r = 0; r < 3; r++) {
+    var copy = JSON.parse(JSON.stringify(proto));
+    copy.tStart = 100 + r * 10; copy.tEnd = copy.tStart + 5;
+    copy.bStart = copy.tStart;  copy.bEnd = copy.tEnd;
+    rt.layers.push(copy);       // same name + groupPath, different position
+  }
+  rt.layerCount = rt.layers.length;
+  var rep = diff.diffSnapshots(repeated, JSON.parse(JSON.stringify(repeated)));
+  check('repeated layers against a copy of themselves report nothing',
+        rep.nodes.length === 0,
+        JSON.stringify(rep.counts) + ' :: ' + findings(rep.nodes).slice(0, 4).join(' | '));
+
+  // The pairing must be by occurrence, so a repeat that moves is a change on
+  // that one placement -- not a remove + add, and not a cascade onto its twins.
+  var moved = JSON.parse(JSON.stringify(repeated));
+  var mt = moved.tracks.filter(function (t) { return t.id === rt.id; })[0];
+  mt.layers[mt.layers.length - 1].tStart += 7;
+  var mv = diff.diffSnapshots(repeated, moved);
+  check('moving one of several identical layers changes only that one',
+        mv.counts.added === 0 && mv.counts.removed === 0 && mv.counts.changed === 2,
+        JSON.stringify(mv.counts) + ' :: ' + findings(mv.nodes).join(' | '));
+}
+
 console.log('\nreal capture pair');
 var real = diff.diffSnapshots(A, B);
 check('reports some difference', real.nodes.length > 0);

@@ -45,23 +45,48 @@ function fieldChanges(a, b, fields) {
 
 /* Match two lists by a key function.
  * Returns {added, removed, common:[{key, a, b}]} preserving the order items
- * appear in, `b` first -- the newer snapshot is the one being read. */
+ * appear in, `b` first -- the newer snapshot is the one being read.
+ *
+ * Keys are NOT assumed unique. A key identifies a *group*, and the nth member
+ * of a group in A pairs with the nth in B. One clip placed ten times down a
+ * track is ten layers sharing `groupPath + name`; keying them into a plain map
+ * is last-write-wins, so all ten placements in B would compare against the same
+ * single placement in A and nine would report a bogus tStart/tEnd change --
+ * which is exactly what a snapshot diffed against a copy of itself showed.
+ *
+ * Within a group the pairing is by order of appearance, so a repeated layer
+ * that moves still reads as a change rather than remove + add. Across groups
+ * identity still rules: an insertion never shifts unrelated entities.
+ */
 function matchBy(listA, listB, keyOf) {
   listA = listA || [];
   listB = listB || [];
-  var mapA = {}, mapB = {}, i, k;
-  for (i = 0; i < listA.length; i++) mapA[keyOf(listA[i], i)] = listA[i];
-  for (i = 0; i < listB.length; i++) mapB[keyOf(listB[i], i)] = listB[i];
+
+  // Occurrence-qualified keys: the 2nd "x" becomes "x#2", so equal keys line up
+  // pairwise instead of collapsing. Prototype-less maps keep an entity actually
+  // named "constructor" from colliding with Object.prototype.
+  function qualify(list) {
+    var seen = Object.create(null), keys = [], i, base, n;
+    for (i = 0; i < list.length; i++) {
+      base = keyOf(list[i], i);
+      n = seen[base] = (seen[base] || 0) + 1;
+      keys.push(n === 1 ? base : base + '#' + n);
+    }
+    return keys;
+  }
+
+  var keysA = qualify(listA), keysB = qualify(listB);
+  var mapA = Object.create(null), mapB = Object.create(null), i;
+  for (i = 0; i < listA.length; i++) mapA[keysA[i]] = listA[i];
+  for (i = 0; i < listB.length; i++) mapB[keysB[i]] = listB[i];
 
   var common = [], added = [], removed = [];
   for (i = 0; i < listB.length; i++) {
-    k = keyOf(listB[i], i);
-    if (Object.prototype.hasOwnProperty.call(mapA, k)) common.push({ key: k, a: mapA[k], b: listB[i] });
+    if (keysB[i] in mapA) common.push({ key: keysB[i], a: mapA[keysB[i]], b: listB[i] });
     else added.push(listB[i]);
   }
   for (i = 0; i < listA.length; i++) {
-    k = keyOf(listA[i], i);
-    if (!Object.prototype.hasOwnProperty.call(mapB, k)) removed.push(listA[i]);
+    if (!(keysA[i] in mapB)) removed.push(listA[i]);
   }
   return { added: added, removed: removed, common: common };
 }
