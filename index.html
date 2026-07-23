@@ -63,6 +63,34 @@
   #bar.on { display: flex; }
   .tally b { font-weight: 600; }
   .tally .a { color: var(--add-fg); } .tally .r { color: var(--rm-fg); } .tally .c { color: var(--ch-fg); }
+  #q {
+    margin-left: auto; min-width: 260px; padding: 6px 10px;
+    border: 1px solid var(--edge); border-radius: 6px;
+    background: var(--panel); color: var(--fg); font: inherit; font-size: 13px;
+  }
+  #q:focus { outline: none; border-color: var(--dim); }
+  #q::placeholder { color: var(--dim); }
+  #matches { color: var(--dim); font-size: 12px; min-width: 84px; }
+
+  /* Summary. Auto-fit columns rather than a fixed count: with one transport
+     changed and nothing else there is no reason to hold three empty columns. */
+  #summary {
+    padding: 14px 24px 16px; border-bottom: 1px solid var(--edge);
+    display: grid; gap: 18px 28px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+  #summary[hidden] { display: none; }
+  #summary h2 {
+    font-size: 11px; font-weight: 600; color: var(--dim); margin: 0 0 7px;
+    text-transform: uppercase; letter-spacing: .07em;
+  }
+  #summary .line { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; font-size: 12.5px; }
+  #summary .n { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg); }
+  #summary .of { color: var(--dim); }
+  #summary .a { color: var(--add-fg); } #summary .r { color: var(--rm-fg); } #summary .c { color: var(--ch-fg); }
+  #summary .grow { margin-left: auto; }
+  .note { color: var(--dim); font-size: 12px; padding: 2px 0 0; }
+  mark { background: #4a4326; color: #f2d98a; border-radius: 2px; padding: 0 1px; }
 
   main { padding: 20px 24px 60px; flex: 1; }
   .node { margin: 2px 0; }
@@ -77,6 +105,8 @@
   .removed > .row { border-left-color: var(--rm-fg); }  .removed > .row .sigil { color: var(--rm-fg); }
   .changed > .row { border-left-color: var(--ch-fg); }  .changed > .row .sigil { color: var(--ch-fg); }
   .label { font-weight: 500; }
+  /* Kept only to place a match further down: shown as context, not as a hit. */
+  .node.context > .row .label { color: var(--dim); font-weight: 400; }
   .detail { color: var(--dim); font-size: 12px; }
   /* One flex row per change rather than a 4-column grid: in a grid every arrow
      is pushed out to the widest `from` value on the entity, so a short
@@ -133,7 +163,12 @@
 
 <div id="bar">
   <span class="tally" id="tally"></span>
+  <input type="search" id="q" placeholder="Search changes… (name, field, value)"
+         autocomplete="off" spellcheck="false">
+  <span id="matches"></span>
 </div>
+
+<section id="summary" hidden></section>
 
 <div class="err" id="err" hidden></div>
 <main id="out"><p class="hint">Pick two snapshots to compare.</p></main>
@@ -141,7 +176,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v1.1.0</span>
+  <span id="ver">v1.2.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -239,20 +274,91 @@ function fail(msg) {
 
 var SIGIL = { added: '+', removed: '−', changed: '~' };
 
+/* Search ------------------------------------------------------------------
+ * The query is matched against the same text the row renders: label, detail,
+ * and every field name and value. Matching the rendered text is the point --
+ * anything you can read, you can search for.
+ */
+var query = '';
+
+function hay(node) {
+  var s = node.label + ' ' + (node.detail || '');
+  (node.changes || []).forEach(function (c) {
+    s += ' ' + c.field + ' ' + fmt(c.from) + ' ' + fmt(c.to);
+  });
+  return s.toLowerCase();
+}
+
+/* Space-separated terms are ANDed, and each term may match anywhere on the
+ * path from the top-level node down to this one. `whiskey cue` therefore finds
+ * the cues inside track 290_whiskey_whiskey -- matching each term against one
+ * node in isolation would find nothing, since no cue's own text contains the
+ * track name, and that is precisely how someone types a search.
+ */
+function hits(node, path) {
+  if (!query) return false;
+  var h = path + ' ' + hay(node), terms = query.split(/\s+/);
+  for (var i = 0; i < terms.length; i++) if (h.indexOf(terms[i]) === -1) return false;
+  return true;
+}
+
+/* Keep a node when it matches (with its whole subtree, since a track you
+ * searched for is worth seeing entire) or when a descendant does (with only
+ * the matching branches, so the ancestor is context rather than noise). */
+function filterNodes(nodes, path) {
+  var out = [];
+  nodes.forEach(function (n) {
+    if (hits(n, path)) { out.push(n); return; }
+    var kids = filterNodes(n.children || [], path + ' ' + hay(n));
+    if (kids.length) {
+      var copy = {};
+      for (var k in n) if (Object.prototype.hasOwnProperty.call(n, k)) copy[k] = n[k];
+      copy.children = kids;
+      copy.context = true;      // dimmed: matched only through a descendant
+      out.push(copy);
+    }
+  });
+  return out;
+}
+
+function countMatches(nodes, path) {
+  var n = 0;
+  (function walk(list, p) {
+    list.forEach(function (x) {
+      if (hits(x, p)) n++;
+      if (x.children) walk(x.children, p + ' ' + hay(x));
+    });
+  })(nodes, path);
+  return n;
+}
+
+// Escape for regex AFTER esc(), so the pattern and the haystack have been
+// through the same entity mapping and a query containing < or & still lines up.
+function markup(text) {
+  var safe = esc(text);
+  if (!query) return safe;
+  query.split(/\s+/).forEach(function (t) {
+    if (!t) return;
+    var pat = esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    safe = safe.replace(new RegExp(pat, 'gi'), '<mark>$&</mark>');
+  });
+  return safe;
+}
+
 function renderNode(node) {
-  var html = '<div class="node ' + node.kind + '">';
+  var html = '<div class="node ' + node.kind + (node.context ? ' context' : '') + '">';
   html += '<div class="row"><span class="sigil">' + SIGIL[node.kind] + '</span>';
-  html += '<span class="label">' + esc(node.label) + '</span>';
-  if (node.detail) html += '<span class="detail">' + esc(node.detail) + '</span>';
+  html += '<span class="label">' + markup(node.label) + '</span>';
+  if (node.detail) html += '<span class="detail">' + markup(node.detail) + '</span>';
   html += '</div>';
 
   if (node.changes && node.changes.length) {
     html += '<div class="fields">';
     node.changes.forEach(function (c) {
-      html += '<div class="chg"><span class="k">' + esc(c.field) + '</span>' +
-              '<span class="v from">' + esc(fmt(c.from)) + '</span>' +
+      html += '<div class="chg"><span class="k">' + markup(c.field) + '</span>' +
+              '<span class="v from">' + markup(fmt(c.from)) + '</span>' +
               '<span class="arrow">→</span>' +
-              '<span class="v to">' + esc(fmt(c.to)) + '</span></div>';
+              '<span class="v to">' + markup(fmt(c.to)) + '</span></div>';
     });
     html += '</div>';
   }
@@ -262,30 +368,122 @@ function renderNode(node) {
   return html + '</div>';
 }
 
+/* Summary ----------------------------------------------------------------- */
+
+// "match" needs -es, not -s. Cheap rule, but it covers every word this page
+// pluralises and beats rendering "3 matchs".
+function plural(n, one) {
+  if (n === 1) return '1 ' + one;
+  return n + ' ' + one + (/(ch|sh|s|x|z)$/.test(one) ? 'es' : 's');
+}
+
+function renderSummary(result) {
+  var s = summarize(result);
+  var cols = [];
+
+  var rows = s.entities.map(function (e) {
+    var bits = [];
+    if (e.added)   bits.push('<span class="a">+' + e.added + '</span>');
+    if (e.removed) bits.push('<span class="r">−' + e.removed + '</span>');
+    if (e.changed) bits.push('<span class="c">~' + e.changed + '</span>');
+    return '<div class="line"><span class="of">' + esc(e.entity) + '</span>' +
+           '<span class="grow n">' + bits.join(' ') + '</span></div>';
+  }).join('');
+  cols.push('<div><h2>What changed</h2>' + rows + '</div>');
+
+  // The field ranking is the load-bearing part: it tells a re-link apart from
+  // real editorial work, which the raw counts cannot.
+  if (s.fields.length) {
+    var top = s.fields.slice(0, 6).map(function (f) {
+      return '<div class="line"><span class="of">' + esc(f.entity) + '</span>' +
+             '<span>' + esc(f.field) + '</span>' +
+             '<span class="grow n">' + f.count + '</span></div>';
+    }).join('');
+    var lead = s.fields[0], total = 0;
+    s.fields.forEach(function (f) { total += f.count; });
+    var note = '';
+    if (lead.count / total > 0.4) {
+      note = '<div class="note">' + Math.round(lead.count / total * 100) + '% of all field ' +
+             'changes are ' + esc(lead.entity + ' ' + lead.field) + '.</div>';
+    }
+    cols.push('<div><h2>Fields most often changed</h2>' + top + note + '</div>');
+  }
+
+  var spots = s.hotspots.filter(function (h) { return h.count > 1; }).slice(0, 6);
+  if (spots.length) {
+    cols.push('<div><h2>Most affected</h2>' + spots.map(function (h) {
+      return '<div class="line"><span>' + esc(h.label) + '</span>' +
+             '<span class="grow of">' + plural(h.count - 1, 'change') + '</span></div>';
+    }).join('') + '</div>');
+  }
+
+  var el = document.getElementById('summary');
+  el.innerHTML = cols.join('');
+  el.hidden = false;
+}
+
+// Diffing a big pair is not free, so it happens once per snapshot change and
+// searching re-renders from the held result rather than re-running the engine.
+var lastResult = null;
+
 function render() {
   if (!snaps.a || !snaps.b) return;
   document.getElementById('err').hidden = true;
 
-  var result = diffSnapshots(snaps.a, snaps.b);
-  var out = document.getElementById('out');
-  var bar = document.getElementById('bar');
-  var c = result.counts;
+  lastResult = diffSnapshots(snaps.a, snaps.b);
+  var c = lastResult.counts;
 
-  bar.classList.add('on');
+  document.getElementById('bar').classList.add('on');
   document.getElementById('tally').innerHTML =
     '<span class="a"><b>' + c.added + '</b> added</span> &nbsp; ' +
     '<span class="r"><b>' + c.removed + '</b> removed</span> &nbsp; ' +
     '<span class="c"><b>' + c.changed + '</b> changed</span>';
 
-  if (!result.nodes.length) {
+  if (lastResult.nodes.length) renderSummary(lastResult);
+  else document.getElementById('summary').hidden = true;
+
+  paint();
+}
+
+/* Draw the tree for the current query. Separate from render() so typing does
+ * not re-diff. */
+function paint() {
+  var out = document.getElementById('out');
+  var count = document.getElementById('matches');
+  if (!lastResult) return;
+
+  if (!lastResult.nodes.length) {
+    count.textContent = '';
     out.innerHTML = '<p class="empty">No differences. These snapshots describe the same showfile state.</p>';
     return;
   }
-  out.innerHTML = result.nodes.map(renderNode).join('');
+
+  if (!query) {
+    count.textContent = '';
+    out.innerHTML = lastResult.nodes.map(renderNode).join('');
+    return;
+  }
+
+  var shown = filterNodes(lastResult.nodes, ''), n = countMatches(lastResult.nodes, '');
+  count.textContent = n ? plural(n, 'match') : 'no matches';
+  out.innerHTML = n
+    ? shown.map(renderNode).join('')
+    : '<p class="empty">Nothing matches “' + esc(query) + '”.</p>';
 }
 
 wire('dropA', 'fileA', 'a');
 wire('dropB', 'fileB', 'b');
+
+(function () {
+  var box = document.getElementById('q');
+  box.addEventListener('input', function () {
+    query = box.value.trim().toLowerCase();
+    paint();
+  });
+  box.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { box.value = ''; query = ''; paint(); }
+  });
+})();
 
 (function () {
   var btn = document.getElementById('pickDir');

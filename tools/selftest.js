@@ -187,6 +187,30 @@ check('layerCount is not compared as a field',
                               'track ' + target.id) || []).indexOf('layerCount') === -1
              : false);
 
+console.log('\nsummary');
+// The summary drives the panel on the page, so it must not invent or lose
+// nodes: every node in the tree belongs to exactly one entity bucket.
+var sum = diff.summarize(real);
+var bucketed = sum.entities.reduce(function (n, e) { return n + e.total; }, 0);
+check('every node lands in exactly one entity bucket',
+      bucketed === findings(real.nodes).length,
+      bucketed + ' bucketed vs ' + findings(real.nodes).length + ' nodes');
+check('entity tallies add up to the headline counts',
+      sum.entities.reduce(function (n, e) { return n + e.added; }, 0) === real.counts.added &&
+      sum.entities.reduce(function (n, e) { return n + e.removed; }, 0) === real.counts.removed &&
+      sum.entities.reduce(function (n, e) { return n + e.changed; }, 0) === real.counts.changed);
+check('fields are ranked most-changed first',
+      sum.fields.every(function (f, i) { return i === 0 || sum.fields[i - 1].count >= f.count; }),
+      JSON.stringify(sum.fields.slice(0, 3)));
+check('hotspots are ranked and cover the top-level nodes',
+      sum.hotspots.length === real.nodes.length &&
+      sum.hotspots.every(function (h, i) { return i === 0 || sum.hotspots[i - 1].count >= h.count; }));
+check('an empty diff summarises to nothing rather than throwing',
+      (function () {
+        var e = diff.summarize(diff.diffSnapshots(A, JSON.parse(JSON.stringify(A))));
+        return e.entities.length === 0 && e.fields.length === 0 && e.hotspots.length === 0;
+      })());
+
 console.log('\nrunning order');
 var reordered = JSON.parse(JSON.stringify(A));
 reordered.transports[0].trackRefs = reordered.transports[0].trackRefs.slice().reverse();

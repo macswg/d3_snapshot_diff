@@ -101,15 +101,15 @@ function diffMedia(a, b) {
   var m = matchBy(a.media, b.media, mediaKey);
   var nodes = [];
   m.added.forEach(function (x) {
-    nodes.push({ kind: 'added', label: 'media ' + (x.name || x.path), detail: x.path });
+    nodes.push({ kind: 'added', entity: 'media', label: 'media ' + (x.name || x.path), detail: x.path });
   });
   m.removed.forEach(function (x) {
-    nodes.push({ kind: 'removed', label: 'media ' + (x.name || x.path), detail: x.path });
+    nodes.push({ kind: 'removed', entity: 'media', label: 'media ' + (x.name || x.path), detail: x.path });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, MEDIA_FIELDS);
     if (ch.length) {
-      nodes.push({ kind: 'changed', label: 'media ' + (p.b.name || p.b.path), changes: ch });
+      nodes.push({ kind: 'changed', entity: 'media', label: 'media ' + (p.b.name || p.b.path), changes: ch });
     }
   });
   return nodes;
@@ -119,16 +119,16 @@ function diffLayers(trackA, trackB) {
   var m = matchBy(trackA.layers, trackB.layers, layerKey);
   var nodes = [];
   m.added.forEach(function (l) {
-    nodes.push({ kind: 'added', label: 'layer ' + layerKey(l), detail: l.type });
+    nodes.push({ kind: 'added', entity: 'layer', label: 'layer ' + layerKey(l), detail: l.type });
   });
   m.removed.forEach(function (l) {
-    nodes.push({ kind: 'removed', label: 'layer ' + layerKey(l), detail: l.type });
+    nodes.push({ kind: 'removed', entity: 'layer', label: 'layer ' + layerKey(l), detail: l.type });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, LAYER_FIELDS);
     var kids = diffMedia(p.a, p.b);
     if (ch.length || kids.length) {
-      nodes.push({ kind: 'changed', label: 'layer ' + layerKey(p.b),
+      nodes.push({ kind: 'changed', entity: 'layer', label: 'layer ' + layerKey(p.b),
                    changes: ch, children: kids });
     }
   });
@@ -141,14 +141,14 @@ function diffCues(trackA, trackB) {
   function cueLabel(c) {
     return 'cue @ beat ' + fmt(c.beat) + (c.note ? ' "' + c.note + '"' : '');
   }
-  m.added.forEach(function (c) { nodes.push({ kind: 'added', label: cueLabel(c) }); });
-  m.removed.forEach(function (c) { nodes.push({ kind: 'removed', label: cueLabel(c) }); });
+  m.added.forEach(function (c) { nodes.push({ kind: 'added', entity: 'cue', label: cueLabel(c) }); });
+  m.removed.forEach(function (c) { nodes.push({ kind: 'removed', entity: 'cue', label: cueLabel(c) }); });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, CUE_FIELDS);
     // Tags are a small list of {type,text}; compare them as a whole.
     var ta = JSON.stringify(p.a.tags || []), tb = JSON.stringify(p.b.tags || []);
     if (ta !== tb) ch.push({ field: 'tags', from: ta, to: tb });
-    if (ch.length) nodes.push({ kind: 'changed', label: cueLabel(p.b), changes: ch });
+    if (ch.length) nodes.push({ kind: 'changed', entity: 'cue', label: cueLabel(p.b), changes: ch });
   });
   return nodes;
 }
@@ -157,18 +157,18 @@ function diffTracks(snapA, snapB) {
   var m = matchBy(snapA.tracks, snapB.tracks, function (t) { return t.id; });
   var nodes = [];
   m.added.forEach(function (t) {
-    nodes.push({ kind: 'added', label: 'track ' + t.id,
+    nodes.push({ kind: 'added', entity: 'track', label: 'track ' + t.id,
                  detail: t.layerCount + ' layers' });
   });
   m.removed.forEach(function (t) {
-    nodes.push({ kind: 'removed', label: 'track ' + t.id,
+    nodes.push({ kind: 'removed', entity: 'track', label: 'track ' + t.id,
                  detail: t.layerCount + ' layers' });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, TRACK_FIELDS);
     var kids = diffCues(p.a, p.b).concat(diffLayers(p.a, p.b));
     if (ch.length || kids.length) {
-      nodes.push({ kind: 'changed', label: 'track ' + p.b.id,
+      nodes.push({ kind: 'changed', entity: 'track', label: 'track ' + p.b.id,
                    changes: ch, children: kids });
     }
   });
@@ -179,15 +179,15 @@ function diffTransports(snapA, snapB) {
   var m = matchBy(snapA.transports, snapB.transports,
                   function (t, i) { return t.name || ('#' + i); });
   var nodes = [];
-  m.added.forEach(function (t) { nodes.push({ kind: 'added', label: 'transport ' + t.name }); });
-  m.removed.forEach(function (t) { nodes.push({ kind: 'removed', label: 'transport ' + t.name }); });
+  m.added.forEach(function (t) { nodes.push({ kind: 'added', entity: 'transport', label: 'transport ' + t.name }); });
+  m.removed.forEach(function (t) { nodes.push({ kind: 'removed', entity: 'transport', label: 'transport ' + t.name }); });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, ['setlist', 'trackCount', 'error']);
     // The running order of a setlist is showfile state: a reordered show is a
     // real change even when every track in it is untouched.
     var ra = (p.a.trackRefs || []).join(' > '), rb = (p.b.trackRefs || []).join(' > ');
     if (ra !== rb) ch.push({ field: 'running order', from: ra, to: rb });
-    if (ch.length) nodes.push({ kind: 'changed', label: 'transport ' + p.b.name, changes: ch });
+    if (ch.length) nodes.push({ kind: 'changed', entity: 'transport', label: 'transport ' + p.b.name, changes: ch });
   });
   return nodes;
 }
@@ -198,7 +198,7 @@ function diffSnapshots(snapA, snapB) {
 
   var top = fieldChanges(snapA, snapB, ['project', 'scope', 'activeTransport',
                                         'transportCount', 'trackCount']);
-  if (top.length) nodes.push({ kind: 'changed', label: 'snapshot', changes: top });
+  if (top.length) nodes.push({ kind: 'changed', entity: 'snapshot', label: 'snapshot', changes: top });
 
   nodes = nodes.concat(diffTransports(snapA, snapB));
   nodes = nodes.concat(diffTracks(snapA, snapB));
@@ -221,6 +221,60 @@ function diffSnapshots(snapA, snapB) {
   };
 }
 
+/* Roll a diff up into something readable at a glance.
+ *
+ * A real pair of captures runs to hundreds of nodes, and the raw tally
+ * (added/removed/changed) does not distinguish "someone recut two songs" from
+ * "every clip's media version was re-scanned". The field ranking is what
+ * separates them: 205 changes that are all `media version` is a re-link, not
+ * editorial work.
+ *
+ * Returns {entities, fields, hotspots}, all pre-sorted for display.
+ */
+var ENTITY_ORDER = ['snapshot', 'transport', 'track', 'layer', 'cue', 'media'];
+
+function summarize(result) {
+  var byEntity = {}, byField = {};
+
+  (function walk(list) {
+    list.forEach(function (n) {
+      var e = n.entity || 'other';
+      if (!byEntity[e]) byEntity[e] = { entity: e, added: 0, removed: 0, changed: 0, total: 0 };
+      byEntity[e][n.kind]++;
+      byEntity[e].total++;
+      (n.changes || []).forEach(function (c) {
+        var k = e + ' ' + c.field;   // entity names carry no spaces, so this cannot collide
+        if (!byField[k]) byField[k] = { entity: e, field: c.field, count: 0 };
+        byField[k].count++;
+      });
+      if (n.children) walk(n.children);
+    });
+  })(result.nodes);
+
+  var entities = Object.keys(byEntity).map(function (k) { return byEntity[k]; })
+    .sort(function (a, b) {
+      var ia = ENTITY_ORDER.indexOf(a.entity), ib = ENTITY_ORDER.indexOf(b.entity);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+
+  var fields = Object.keys(byField).map(function (k) { return byField[k]; })
+    .sort(function (a, b) { return b.count - a.count || a.field.localeCompare(b.field); });
+
+  // Weight of a top-level node = everything reported beneath it, so a track
+  // with one recut layer does not outrank one with forty.
+  function weigh(n) {
+    var c = 1;
+    (n.children || []).forEach(function (k) { c += weigh(k); });
+    return c;
+  }
+  var hotspots = result.nodes.map(function (n) {
+    return { label: n.label, kind: n.kind, entity: n.entity || 'other', count: weigh(n) };
+  }).sort(function (a, b) { return b.count - a.count; });
+
+  return { entities: entities, fields: fields, hotspots: hotspots };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { diffSnapshots: diffSnapshots, matchBy: matchBy, fmt: fmt };
+  module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
+                     matchBy: matchBy, fmt: fmt };
 }

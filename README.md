@@ -40,6 +40,28 @@ Changes nest: a changed track lists its changed cues and layers, and a changed
 layer lists its changed media. Unchanged entities are omitted entirely — the
 tally in the toolbar counts every node in the tree, including nested ones.
 
+### Summary
+
+Above the tree, three columns: what changed per entity type, the fields that
+changed most often, and the tracks carrying the most changes.
+
+**The field ranking is the part worth reading first.** A pair of captures can
+report hundreds of changes and mean very little: if 205 of them are `media
+version`, that is a re-link or re-scan, not editorial work. The headline
+add/remove/change counts cannot tell those apart; the field ranking can, and it
+says so outright when one field dominates.
+
+### Search
+
+Filters the tree as you type, over everything you can read on a row — labels,
+field names, and both values. Space-separated terms are ANDed, and each term
+may match anywhere on the path from the top-level node down, so `whiskey cue`
+finds the cues inside `290_whiskey_whiskey` even though no cue's own text
+contains "whiskey".
+
+A row kept only to place a match further down is dimmed: it is context, not a
+hit. The count is of actual hits. Escape clears.
+
 ## Logs on a shared drive
 
 Google Drive for desktop mounts Drive as an ordinary folder
@@ -120,7 +142,22 @@ globally for the page, which is why the self-test can `require` it directly.
 {
   meta:   { a: {capturedAt, project, version}, b: {…} },
   counts: { added, removed, changed },
-  nodes:  [ { kind, label, detail?, changes?: [{field, from, to}], children?: [] } ]
+  nodes:  [ { kind, entity, label, detail?, changes?: [{field, from, to}], children?: [] } ]
+}
+```
+
+`entity` is one of `snapshot`, `transport`, `track`, `layer`, `cue`, `media`.
+It is carried on the node rather than parsed back out of the label, so the
+summary never has to guess what a row is.
+
+`summarize(result)` rolls that tree up for the panel on the page, and is
+likewise DOM-free:
+
+```js
+{
+  entities: [ {entity, added, removed, changed, total} ],   // fixed display order
+  fields:   [ {entity, field, count} ],                     // most-changed first
+  hotspots: [ {label, kind, entity, count} ]                // top-level, heaviest first
 }
 ```
 
