@@ -11,15 +11,21 @@
     --add: #4ec9776; --add-fg: #6fd08c; --rm-fg: #e8737f; --ch-fg: #d7a45f;
   }
   * { box-sizing: border-box; }
+  /* Column flex with main growing keeps the footer against the bottom of the
+     viewport before a diff is loaded, and lets it ride down past a long one. */
   body {
     margin: 0; background: var(--bg); color: var(--fg);
     font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
   }
   header {
     padding: 18px 24px; border-bottom: 1px solid var(--edge);
     display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;
   }
-  h1 { font-size: 16px; font-weight: 600; margin: 0 auto 0 0; letter-spacing: .01em; }
+  /* flex-basis 100% so the title owns its line. Without it the instructions
+     sit beside the title: .how is capped by max-width, so its own
+     flex-basis 100% never actually fills the row and never forces a wrap. */
+  h1 { flex-basis: 100%; font-size: 16px; font-weight: 600; margin: 0; letter-spacing: .01em; }
   /* flex-basis 100% for the same reason as .slot.row — the instructions take
      the whole line under the title instead of trailing it. */
   .how {
@@ -58,7 +64,7 @@
   .tally b { font-weight: 600; }
   .tally .a { color: var(--add-fg); } .tally .r { color: var(--rm-fg); } .tally .c { color: var(--ch-fg); }
 
-  main { padding: 20px 24px 60px; }
+  main { padding: 20px 24px 60px; flex: 1; }
   .node { margin: 2px 0; }
   .row {
     display: flex; gap: 9px; align-items: baseline; padding: 3px 8px;
@@ -86,6 +92,11 @@
   .fields .to   { color: var(--add-fg); background: #1c3326; }
   .fields .arrow { color: var(--dim); }
   .empty, .hint { color: var(--dim); text-align: center; padding: 60px 20px; }
+  footer {
+    border-top: 1px solid var(--edge); padding: 14px 24px;
+    display: flex; gap: 14px; color: var(--dim); font-size: 12px;
+  }
+  footer .who { margin-left: auto; }
   .err { color: var(--rm-fg); padding: 14px 24px; }
 </style>
 </head>
@@ -126,6 +137,11 @@
 
 <div class="err" id="err" hidden></div>
 <main id="out"><p class="hint">Pick two snapshots to compare.</p></main>
+
+<footer>
+  <span>Showfile snapshot diff v1.0</span>
+  <span class="who">Sean Green</span>
+</footer>
 
 <script src="diff.js"></script>
 <script>
