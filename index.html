@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Showfile snapshot diff</title>
+<title>disguise showfile snapshot diff</title>
 <style>
   :root {
     --bg: #16181d; --panel: #1e2128; --edge: #2f333c;
@@ -27,9 +27,10 @@
      flex-basis 100% never actually fills the row and never forces a wrap. */
   h1 { flex-basis: 100%; font-size: 16px; font-weight: 600; margin: 0; letter-spacing: .01em; }
   /* flex-basis 100% for the same reason as .slot.row — the instructions take
-     the whole line under the title instead of trailing it. */
+     the whole line under the title instead of trailing it. No max-width, so the
+     paragraph fills the window rather than wrapping at a fixed measure. */
   .how {
-    flex-basis: 100%; margin: 0; max-width: 78ch;
+    flex-basis: 100%; margin: 0;
     font-size: 12.5px; color: var(--dim);
   }
   .how b { color: var(--fg); font-weight: 600; }
@@ -283,7 +284,7 @@
 <body>
 
 <header>
-  <h1>Showfile snapshot diff</h1>
+  <h1>disguise showfile snapshot diff</h1>
   <p class="how">
     Choose the folder your snapshots are saved in and the two most recent are
     compared automatically — or set <b>Before</b> and <b>After</b> yourself by
