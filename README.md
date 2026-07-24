@@ -53,17 +53,40 @@ So **an added or removed track always means the showfile**, never the setlist.
 Setlist membership is reported where it belongs — as lines on the transport's
 running order.
 
-Telling those apart needs a capture that knows the whole show, and exactly one
-thing does: a transport on the **`automatic` setlist**, which holds every track
-in the showfile. When both captures have one, a track leaving the show really
-is a deletion and is reported as such. When either doesn't, the question is
-unanswerable from the JSON, and the viewer says so in a note above the tree
-rather than guessing:
+Telling those apart needs a capture that knows the whole show. v5 captures one:
+`showfile.trackIds`, which the plugin reads off the **automatic setlist**
+resource — the setlist that holds every track in the show — regardless of what
+any transport is loaded with. A track that leaves that list really was deleted,
+and is reported as such.
+
+`trackIds` is `null`, never `[]`, when the plugin could not read that resource:
+an empty show and an unreadable one are opposite answers, and conflating them
+would report every track in the show as deleted. On `null` the viewer falls back
+to a transport that happens to be sitting on `automatic`, whose `trackRefs` are
+the same census by a less reliable route. With neither, the question is
+unanswerable, and the viewer says so in a note above the tree rather than
+guessing:
 
 > Not counted as deletions: 68 tracks that left the capture by dropping off a
-> setlist. The After capture has no transport on the automatic setlist, which is
-> the only one that lists every track in the show, so this pair cannot tell a
+> setlist. The After capture carries no census of the showfile, which is the
+> only thing that lists every track in the show, so this pair cannot tell a
 > showfile edit from a setlist edit.
+
+Before v5 that fallback was the *only* route, which made the answer depend on
+what someone happened to have loaded when the timer fired — the reason a capture
+taken three minutes later could report 68 phantom deletions.
+
+### Tracks in the trash
+
+d3 keeps a deleted track under `trash/`, and a setlist can go on referencing it.
+It plays like any other song, and it is never in the census — so without being
+told, nothing in the output gives it away.
+
+v5 captures `trashed` per track, and both tabs say so: the tree marks it on the
+track's row and reports a track moving to the trash as a change like any other,
+and the media report badges it in the removed colour next to the track name.
+Searching `trash` in the media report answers "does any setlist still play
+something I deleted", which is the question worth asking.
 
 For the same reason `trackCount` is never printed under that name. At snapshot
 level it reads **tracks in setlists** and at transport level **tracks in
@@ -177,7 +200,7 @@ Entities are matched by **identity, never array position**:
 
 | entity    | identity                               |
 |-----------|----------------------------------------|
-| track     | `id`                                   |
+| track     | `id`, which v5 derives from its resource path |
 | layer     | `groupPath` + `name`, within its track |
 | media     | `path` (falls back to `name`)          |
 | cue       | `beat`                                 |
@@ -188,7 +211,7 @@ layer below it moved". That is the whole reason this exists instead of `diff`.
 
 Consequences worth knowing:
 
-- **Tracks shared between setlists diff once.** Schema v4 stores each track once
+- **Tracks shared between setlists diff once.** The schema stores each track once
   in a top-level `tracks` array with transports holding `trackRefs`; a track on
   two setlists produces one node, not one per referencing transport.
 - **A reordered setlist is a real change.** `trackRefs` order is compared as
@@ -209,10 +232,20 @@ Consequences worth knowing:
 
 ## Schema
 
-Reads **v4 only**, and refuses anything else at load with a message naming the
-version. A v1 log has a top-level `transport` with tracks inline rather than
-referenced, so identity matching cannot line up — rendering it anyway would
-produce a confident all-changed diff, which is worse than refusing.
+Reads **v5 only**, and refuses anything else at load with a message naming the
+version. There is deliberately no back-compatibility, including with v4.
+
+A v1 log has a top-level `transport` with tracks inline rather than referenced,
+so identity matching cannot line up at all. v4 is subtler and worse: it lines up
+and lies quietly. Its track ids are display names disambiguated with a ` #2`
+counter minted in capture order, so two tracks sharing a name can swap ids
+between runs and report one whole track removed and another added for a showfile
+where nothing moved. It also has no `showfile` census, so it cannot tell a
+deleted track from one dropped off a setlist. Rendering either is worse than
+refusing.
+
+v5 fixes both at the source: ids key on the track's resource path, and the
+census is captured explicitly.
 
 Bump the check in `index.html` alongside `SCHEMA_VERSION` in the plugin's
 `snapshot.py`, and add any new comparable fields to the field lists at the top

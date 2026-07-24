@@ -1,4 +1,4 @@
-/* Semantic diff for susan_summary v4 snapshots.
+/* Semantic diff for susan_summary v5 snapshots.
  *
  * Entities are matched by identity, never by array position: tracks by `id`,
  * layers by groupPath + name within their track, media by path (falling back to
@@ -11,7 +11,7 @@
 // is either structural (`layers`, `cues`) or derived (`layerCount`) and would
 // only produce noise -- a layer added already reports itself.
 var TRACK_FIELDS = ['lengthInSec', 'lengthInBeats', 'bpm', 'hasTimecode', 'fps',
-                    'firstTimecodeBeat'];
+                    'firstTimecodeBeat', ['trashed', 'in the trash']];
 // A field is either a key, or [key, display label] where the raw name would
 // mislead. `trackCount` is the one that matters: at both snapshot and transport
 // level it counts setlist membership, not tracks in the showfile.
@@ -168,15 +168,26 @@ function diffCues(trackA, trackB) {
  *
  * The top-level `tracks` array is only the union of what the setlists
  * reference, so a track vanishing from it usually means someone dropped a song
- * from a setlist, not that they deleted it. The one transport that does census
- * the showfile is an `automatic` setlist, which holds every track in the show;
- * when a capture has one, its trackRefs ARE the showfile.
+ * from a setlist, not that they deleted it. Answering "was it deleted" needs a
+ * census of the whole show, and v5 captures one: `showfile.trackIds`, read off
+ * the automatic setlist resource directly, whatever the transports are loaded
+ * with.
  *
- * Returns {known, set}. `known` false means this capture had no automatic
- * transport, so absence proves nothing and no deletion may be claimed from it.
+ * `trackIds` is null, never empty, when the plugin could not read that
+ * resource -- an empty show and an unreadable one are not the same answer. In
+ * that case fall back to a transport that happens to be sitting on `automatic`,
+ * whose trackRefs are the same census by a less reliable route.
+ *
+ * Returns {known, set}. `known` false means this capture cannot speak for the
+ * showfile at all, so absence proves nothing and no deletion may be claimed.
  */
 function showfileTracks(snap) {
-  var set = Object.create(null), known = false;
+  var set = Object.create(null), known = false, i;
+  var census = snap.showfile && snap.showfile.trackIds;
+  if (census) {
+    for (i = 0; i < census.length; i++) set[String(census[i])] = true;
+    return { known: true, set: set };
+  }
   (snap.transports || []).forEach(function (t) {
     if (t.setlist !== 'automatic') return;
     known = true;
@@ -197,22 +208,31 @@ function diffTracks(snapA, snapB) {
   var showA = showfileTracks(snapA), showB = showfileTracks(snapB);
   var m = matchBy(snapA.tracks, snapB.tracks, function (t) { return t.id; });
   var nodes = [], membership = { added: 0, removed: 0 };
+  // A track in the trash is still played if a setlist references it, which is
+  // worth saying on every row it appears on -- it never shows up in the census,
+  // so nothing else in the output would give it away.
+  function trackDetail(t) {
+    var bits = [t.layerCount + ' layers'];
+    if (t.trashed) bits.push('in the trash');
+    return bits.join(' · ');
+  }
   m.added.forEach(function (t) {
     // Genuinely new only if Before censused the showfile and this was not in it.
     if (!(showA.known && !showA.set[String(t.id)])) { membership.added++; return; }
     nodes.push({ kind: 'added', entity: 'track', label: 'track ' + t.id,
-                 detail: t.layerCount + ' layers' });
+                 detail: trackDetail(t) });
   });
   m.removed.forEach(function (t) {
     if (!(showB.known && !showB.set[String(t.id)])) { membership.removed++; return; }
     nodes.push({ kind: 'removed', entity: 'track', label: 'track ' + t.id,
-                 detail: t.layerCount + ' layers' });
+                 detail: trackDetail(t) });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, TRACK_FIELDS);
     var kids = diffCues(p.a, p.b).concat(diffLayers(p.a, p.b));
     if (ch.length || kids.length) {
       nodes.push({ kind: 'changed', entity: 'track', label: 'track ' + p.b.id,
+                   detail: p.b.trashed ? 'in the trash' : null,
                    changes: ch, children: kids });
     }
   });
@@ -309,20 +329,23 @@ function diffSnapshots(snapA, snapB) {
   // than a noisy one: it reads as "nothing happened to the tracks" when what
   // actually happened is that the capture cannot tell.
   var notes = [];
-  function noCensus(which) {
-    return ' The ' + which + ' capture has no transport on the automatic setlist, ' +
-           'which is the only one that lists every track in the show, so this ' +
-           'pair cannot tell a showfile edit from a setlist edit.';
+  function noCensus(which, snap) {
+    var why = snap.showfile && snap.showfile.error
+      ? 'could not read the automatic setlist (' + snap.showfile.error + ')'
+      : 'carries no census of the showfile';
+    return ' The ' + which + ' capture ' + why + ', which is the only thing ' +
+           'that lists every track in the show, so this pair cannot tell a ' +
+           'showfile edit from a setlist edit.';
   }
   if (tracks.membership.removed) {
     notes.push('Not counted as deletions: ' + plural(tracks.membership.removed, 'track') +
                ' that left the capture by dropping off a setlist.' +
-               (tracks.showB.known ? '' : noCensus('After')));
+               (tracks.showB.known ? '' : noCensus('After', snapB)));
   }
   if (tracks.membership.added) {
     notes.push('Not counted as additions: ' + plural(tracks.membership.added, 'track') +
                ' that entered the capture by joining a setlist.' +
-               (tracks.showA.known ? '' : noCensus('Before')));
+               (tracks.showA.known ? '' : noCensus('Before', snapA)));
   }
 
   var counts = { added: 0, removed: 0, changed: 0 };
@@ -475,11 +498,12 @@ function mediaReport(snap) {
       var id = String(ref), t = byId[id];
       // A setlist pointing at a track the capture does not hold is worth
       // seeing, so it is reported as a stub rather than dropped or thrown on.
-      if (!t) return { id: id, name: id, lengthInSec: null, bpm: null, missing: true, items: [] };
+      if (!t) return { id: id, name: id, lengthInSec: null, bpm: null,
+                       trashed: false, missing: true, items: [] };
       var items = itemsOf(t);
       mediaCount += items.length;
       return { id: id, name: t.name || id, lengthInSec: nul(t.lengthInSec),
-               bpm: nul(t.bpm), items: items };
+               bpm: nul(t.bpm), trashed: !!t.trashed, items: items };
     });
     totals.transports++;
     totals.tracks += tracks.length;

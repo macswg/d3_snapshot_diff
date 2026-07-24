@@ -200,6 +200,7 @@
   /* Shown to place a media match, not because the track itself matched. */
   .mtrack.context > summary .tname { color: var(--dim); }
   .mtrack > summary .grow { margin-left: auto; white-space: nowrap; }
+  .mtrack > summary .trash { color: var(--rm-fg); font-size: 11.5px; white-space: nowrap; }
   /* Tighter than the tree's .lines: every pixel of indent here comes straight
      out of the layer column, which is the column still short of room. */
   .mtrack > .lines { margin-left: 4px; padding-left: 8px; }
@@ -376,11 +377,16 @@ function load(file, slot, drop) {
   reader.onload = function () {
     try {
       var data = JSON.parse(reader.result);
-      // A v1 log has a top-level `transport`, not `transports`; its tracks are
-      // inline rather than referenced, so the entity matching here cannot line
-      // up. Say so rather than rendering a misleading all-changed diff.
-      if (data.schemaVersion !== 4) {
-        throw new Error('schema v' + data.schemaVersion + ' is not comparable — this viewer reads v4');
+      // v5 only, deliberately. A v1 log has a top-level `transport` with tracks
+      // inline rather than referenced, so identity matching cannot line up at
+      // all. v4 lines up but lies quietly: its track ids are display names
+      // disambiguated in capture order, so the same show can hand out different
+      // ids on two runs and report a whole track removed and another added. It
+      // also has no census of the showfile, so it cannot tell a deleted track
+      // from one dropped off a setlist. Rendering either is worse than refusing.
+      if (data.schemaVersion !== 5) {
+        throw new Error('schema v' + data.schemaVersion + ' is not comparable — ' +
+                        'this viewer reads v5. Re-capture with the current plugin.');
       }
       snaps[slot] = data;
       drop.classList.add('filled');
@@ -562,7 +568,12 @@ function clock(s) {
 
 function layerOf(it) { return (it.group || []).concat([plain(it.layer)]).join(' / '); }
 
-function trackHay(t) { return (plain(t.id) + ' ' + plain(t.name)).toLowerCase(); }
+// "trash" is searchable text because the row prints it — searching it is how you
+// answer "does any setlist still play something I deleted".
+function trackHay(t) {
+  return (plain(t.id) + ' ' + plain(t.name) +
+          (t.trashed ? ' in the trash' : '')).toLowerCase();
+}
 
 function itemHay(it) {
   return (plain(it.name) + ' ' + plain(it.version) + ' ' + plain(it.path) + ' ' +
@@ -609,6 +620,11 @@ function renderTrack(w) {
     (w.open ? ' open' : '') + '>' +
     '<summary><span class="tnum">' + w.pos + '</span>' +
     '<span class="tname">' + markup(t.name) + '</span>' +
+    // A setlist can play a track that has been moved to the trash, and nothing
+    // else on the row would tell you: it looks like any other song, and the
+    // showfile census never lists it. Worth saying out loud, in the removed
+    // colour, because it is the same class of surprise.
+    (t.trashed ? '<span class="r trash">in the trash</span>' : '') +
     '<span class="grow of">' + esc(meta.join(' · ')) + '</span></summary>' +
     '<div class="lines">';
   html += w.items.length

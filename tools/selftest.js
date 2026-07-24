@@ -49,6 +49,32 @@ function changedFields(nodes, label) {
  * only answerable against an `automatic` setlist -- it is the one that holds
  * every track in the show -- so the cases below build that state explicitly
  * rather than hoping the corpus happens to have it. */
+/* A v5 capture: the census is a field the plugin writes from the automatic
+ * setlist resource, not something inferred from what a transport happens to be
+ * loaded with. `ids` null models the plugin failing to read that resource. */
+function withShowfile(snap, ids, error) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  copy.showfile = {
+    source: 'objects/setlist/automatic.apx',
+    trackIds: ids,
+    trackCount: ids ? ids.length : null,
+    error: error || null
+  };
+  return copy;
+}
+
+/* No transport sitting on the automatic setlist, so the census field is the only
+ * thing that can speak for the showfile. The corpus capture happens to have one
+ * loaded, which would quietly satisfy the fallback and hide what is being
+ * tested. */
+function withoutAutomatic(snap) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  copy.transports.forEach(function (tr) {
+    if (tr.setlist === 'automatic') tr.setlist = 'some_named_setlist';
+  });
+  return copy;
+}
+
 function withCensus(snap) {
   var copy = JSON.parse(JSON.stringify(snap));
   copy.transports[0].setlist = 'automatic';
@@ -223,6 +249,116 @@ check('a track deleted from the showfile is still reported as a deletion',
       findings(diff.diffSnapshots(census, deleted).nodes)
         .indexOf('removed track ' + goneId) !== -1,
       findings(diff.diffSnapshots(census, deleted).nodes).slice(0, 4).join(' | '));
+
+console.log('\nthe v5 showfile census');
+/* v5 stops the census being an accident. The plugin reads the automatic setlist
+ * resource directly, so a capture answers "is this track in the show" whatever
+ * the transports are loaded with -- which is the case the whole distinction
+ * above kept having to decline. */
+var allIds = A.tracks.map(function (t) { return String(t.id); });
+var v5 = withShowfile(A, allIds);
+var v5cut = withShowfile(A, allIds.slice(1));      // one track really left the show
+v5cut.tracks = v5cut.tracks.filter(function (t) { return String(t.id) !== allIds[0]; });
+v5cut.transports.forEach(function (tr) {
+  tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return String(id) !== allIds[0]; });
+});
+var cen = diff.diffSnapshots(v5, v5cut);
+check('a track dropped from the census is a deletion, with no automatic transport in sight',
+      findings(cen.nodes).indexOf('removed track ' + allIds[0]) !== -1,
+      JSON.stringify(cen.counts) + ' :: ' + findings(cen.nodes).slice(0, 3).join(' | '));
+check('and the diff withholds nothing, so it says nothing',
+      (cen.notes || []).length === 0, JSON.stringify(cen.notes));
+
+// The mirror: still on the census, just off every setlist. Not a deletion.
+var v5drop = withShowfile(A, allIds);
+v5drop.tracks = v5drop.tracks.filter(function (t) { return String(t.id) !== allIds[0]; });
+v5drop.transports.forEach(function (tr) {
+  tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return String(id) !== allIds[0]; });
+});
+check('a track still in the census but off every setlist is not a deletion',
+      diff.diffSnapshots(v5, v5drop).counts.removed === 0,
+      JSON.stringify(diff.diffSnapshots(v5, v5drop).counts));
+
+// trackIds null is "could not read", not "the show is empty" -- the difference
+// between declining to answer and answering that everything was deleted.
+var v5err = withShowfile(withoutAutomatic(A), null, 'resource not found');
+v5err.tracks = v5err.tracks.filter(function (t) { return String(t.id) !== allIds[0]; });
+v5err.transports.forEach(function (tr) {
+  tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return String(id) !== allIds[0]; });
+});
+var errDiff = diff.diffSnapshots(v5, v5err);
+check('a null census is declined, not read as an empty showfile',
+      errDiff.counts.removed === 0 && (errDiff.notes || []).length === 1,
+      JSON.stringify(errDiff.counts) + ' :: ' + JSON.stringify(errDiff.notes));
+check('the note quotes why the census was unreadable',
+      /resource not found/.test((errDiff.notes || [])[0] || ''),
+      JSON.stringify(errDiff.notes));
+
+// An empty show is a real answer, and the opposite one. Counted over track
+// nodes rather than counts.removed, which also carries the four transports that
+// went with it.
+var emptied = findings(diff.diffSnapshots(v5, withShowfile({ transports: [], tracks: [] }, [])).nodes)
+  .filter(function (s) { return /^removed track /.test(s); });
+check('an empty census really does mean every track left the show',
+      emptied.length === A.tracks.length,
+      emptied.length + ' of ' + A.tracks.length);
+
+// The fallback still earns its keep: census unreadable, but a transport happens
+// to be sitting on automatic, which is the same list by a worse route.
+var v5fb = withShowfile(withCensus(A), null, 'resource not found');
+check('a null census falls back to a transport on the automatic setlist',
+      diff.diffSnapshots(v5fb, v5fb).nodes.length === 0 &&
+      (function () {
+        var cut = JSON.parse(JSON.stringify(v5fb));
+        var gone = String(cut.tracks[0].id);
+        cut.tracks = cut.tracks.filter(function (t) { return String(t.id) !== gone; });
+        cut.transports.forEach(function (tr) {
+          tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return String(id) !== gone; });
+        });
+        return findings(diff.diffSnapshots(v5fb, cut).nodes).indexOf('removed track ' + gone) !== -1;
+      })());
+
+console.log('\ntracks in the trash');
+/* d3 keeps a deleted track under trash/, and a setlist can go on referencing it
+ * -- the live session that prompted v5 had exactly one. It plays like any other
+ * song and never appears in the census, so nothing in the output gives it away
+ * unless the capture says so. */
+var trashA = withShowfile(A, allIds);
+trashA.tracks[0].trashed = false;
+var trashB = JSON.parse(JSON.stringify(trashA));
+trashB.tracks[0].trashed = true;
+check('a track moving to the trash is a reported change',
+      (changedFields(diff.diffSnapshots(trashA, trashB).nodes,
+                     'track ' + trashA.tracks[0].id) || []).indexOf('in the trash') !== -1,
+      JSON.stringify(changedFields(diff.diffSnapshots(trashA, trashB).nodes,
+                                   'track ' + trashA.tracks[0].id)));
+check('a changed track already in the trash says so on its row',
+      nodeAt(diff.diffSnapshots(trashB, (function () {
+        var c = JSON.parse(JSON.stringify(trashB));
+        c.tracks[0].bpm = (c.tracks[0].bpm || 60) + 1;
+        return c;
+      })()).nodes, 'track ' + trashB.tracks[0].id).detail === 'in the trash');
+// The media report is where someone would actually notice, since it lists what
+// each setlist plays rather than only what changed.
+var trashRep = diff.mediaReport(trashB);
+check('the media report carries the flag through to every setlist listing it',
+      trashRep.transports.every(function (tp) {
+        return tp.tracks.every(function (t) {
+          return t.missing || typeof t.trashed === 'boolean';
+        });
+      }));
+check('and it marks the trashed track specifically',
+      (function () {
+        var id = String(trashB.tracks[0].id), seen = 0, flagged = 0;
+        trashRep.transports.forEach(function (tp) {
+          tp.tracks.forEach(function (t) {
+            if (t.id !== id) return;
+            seen++;
+            if (t.trashed) flagged++;
+          });
+        });
+        return seen > 0 && seen === flagged;
+      })());
 
 console.log('\ntrackCount is setlist membership');
 // Both counters follow the setlists, not the show. Labelling them `trackCount`
