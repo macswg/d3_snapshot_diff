@@ -76,6 +76,11 @@ Before v5 that fallback was the *only* route, which made the answer depend on
 what someone happened to have loaded when the timer fired — the reason a capture
 taken three minutes later could report 68 phantom deletions.
 
+For the same reason `trackCount` is never printed under that name. At snapshot
+level it reads **tracks in setlists** and at transport level **tracks in
+setlist**, because that is what it counts — a show with 127 tracks and one
+25-track setlist loaded reports 59, not 127.
+
 ### Tracks in the trash
 
 d3 keeps a deleted track under `trash/`, and a setlist can go on referencing it.
@@ -87,11 +92,6 @@ track's row and reports a track moving to the trash as a change like any other,
 and the media report badges it in the removed colour next to the track name.
 Searching `trash` in the media report answers "does any setlist still play
 something I deleted", which is the question worth asking.
-
-For the same reason `trackCount` is never printed under that name. At snapshot
-level it reads **tracks in setlists** and at transport level **tracks in
-setlist**, because that is what it counts — a show with 127 tracks and one
-25-track setlist loaded reports 59, not 127.
 
 ### Running order
 
@@ -127,33 +127,36 @@ says so outright when one field dominates.
 ## Media report
 
 The second tab is not a diff. It is a plain inventory of the **After snapshot
-alone** — what this show loads, setlist by setlist — and it ignores Before
-entirely. It answers "what plays, and which version", which the diff
-deliberately never says.
+alone** — every track in it and what each one is programmed with — and it
+ignores Before entirely. It answers "what is loaded, and which version", which
+the diff deliberately never says.
 
-A section per transport, tracks in that setlist's running order, and under each
-track one row per media file: filename, version, layer, flags, and the layer's
-in and out times. Rows are in timeline order, so reading down a track is
-reading the track. Tracks start collapsed — a 126-track setlist would otherwise
+One row per media file under each track: filename, version, layer, flags, and
+the layer's in and out times. Rows are in timeline order, so reading down a
+track is reading the track. Tracks start collapsed — 127 of them would otherwise
 open some 1,700 rows — and the closed line still gives length, bpm and media
-count, which is usually the question. `expand all` per transport when it isn't.
+count, which is usually the question. `expand all` when it isn't.
 
-The version column is fixed-width and aligned across every track in the report,
-because running an eye down it is the point.
+The version column is fixed-width and aligned across the whole report, because
+running an eye down it is the point.
 
-Some deliberate differences from the diff tab:
+**Setlists are not part of this.** An earlier version grouped by transport, and
+it was wrong in a way worth recording: a track on three setlists was listed
+three times and its media counted three times, so a show holding 1,734 media
+reported 2,931 — an inventory whose total is not the inventory. What is
+programmed in a track does not depend on who plays it. Setlists are the diff
+tab's business, where a running order is genuinely what changed.
 
-- **A track on two setlists is listed under both**, and its media counted
-  twice. The diff does the opposite for good reason — one edit reported twice
-  is a wrong answer — but here the question is "what does this setlist play",
-  and a song in two shows is loaded for both.
-- **Every transport is included**, `automatic` among them. With an automatic
-  transport loaded that section is the whole showfile, which is a report worth
-  having.
+So: every track once, in the order the capture wrote them, which is by id — the
+report reads alphabetically and a track keeps its place between captures.
+
+Two other differences from the diff tab:
+
 - **It works with only After loaded.** The diff needs two snapshots; an
   inventory needs one.
-- A setlist entry with no track in the capture renders as a marked stub rather
-  than being dropped.
+- **Tracks in the trash are badged**, since a track that has been deleted can
+  still be programmed and still be played. See
+  [Tracks in the trash](#tracks-in-the-trash).
 
 `mediaReport(snap)` builds it, is DOM-free like the rest of `diff.js`, and is
 covered by the self-test.
@@ -297,16 +300,17 @@ DOM-free:
 
 ```js
 {
-  transports: [ { name, setlist, trackCount, mediaCount, tracks: [
-    { id, name, lengthInSec, bpm, missing?, items: [
-      { layer, group, type, renderEnable, tStart, tEnd,
-        name, path, version, hasAudio, regionSet } ] } ] } ],
-  totals: { transports, tracks, media }
+  tracks: [ { id, name, lengthInSec, bpm, trashed, items: [
+    { layer, group, type, renderEnable, tStart, tEnd,
+      name, path, version, hasAudio, regionSet } ] } ],
+  totals: { tracks, media }
 }
 ```
 
 `items` is one row per media, not per layer, sorted by `tStart` with nulls last.
-`missing` marks a `trackRefs` entry with no track in the capture.
+It reads `snap.tracks` and never looks at `transports`, so every track appears
+exactly once and `totals.media` is the media in the capture rather than a sum
+over setlists.
 
 `summarize(result)` rolls the diff tree up for the panel on the page, and is
 likewise DOM-free:

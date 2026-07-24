@@ -431,30 +431,20 @@ function summarize(result) {
   return { entities: entities, fields: fields, hotspots: hotspots };
 }
 
-/* One capture's media, read as a setlist at a time: what is loaded, in the
- * order it plays. Nothing here is a comparison -- it answers "what is in this
- * show", which the diff deliberately never says.
+/* One capture's media: every track it holds, and what each one loads, in the
+ * order it plays. Nothing here is a comparison -- it answers "what is
+ * programmed", which the diff deliberately never says.
  *
- * Returns {transports:[{name, setlist, trackCount, mediaCount, tracks:[…]}],
- *          totals:{transports, tracks, media}}.
+ * Returns {tracks:[{id, name, lengthInSec, bpm, trashed, items:[…]}],
+ *          totals:{tracks, media}}.
  *
- * Every transport is included whatever its setlist, `automatic` among them: the
- * automatic setlist is the only census of the showfile, so dropping it -- the
- * obvious tidy, since its tracks all recur elsewhere -- would leave the one
- * complete inventory out of the inventory.
+ * Deliberately flat. Grouping by transport meant a track on three setlists was
+ * listed three times and its media counted three times, so a 1,734-media show
+ * reported 2,931 -- an inventory whose total is not the inventory. Setlists are
+ * the diff tab's business; this one is about what is programmed in the tracks.
  */
 function mediaReport(snap) {
   snap = snap || {};
-
-  // Index the tracks once. A linear scan per trackRef is quadratic, and this
-  // runs over 127 tracks against 1852 layers. First id wins: ids are unique in
-  // practice (the plugin uniquifies with a `#2` suffix) but a capture that
-  // repeats one must still report rather than throw.
-  var byId = Object.create(null);
-  (snap.tracks || []).forEach(function (t) {
-    var k = String(t.id);
-    if (!(k in byId)) byId[k] = t;
-  });
 
   // tStart is null on a layer the director could not place. Sorting those as 0
   // would file them ahead of everything on the timeline, claiming a position
@@ -489,35 +479,20 @@ function mediaReport(snap) {
     return out.sort(byTime);
   }
 
-  var totals = { transports: 0, tracks: 0, media: 0 };
-  var transports = (snap.transports || []).map(function (tr) {
-    var mediaCount = 0;
-    // trackRefs order is the running order, which is the whole point of reading
-    // a setlist -- never sorted, alphabetically or otherwise.
-    var tracks = (tr.trackRefs || []).map(function (ref) {
-      var id = String(ref), t = byId[id];
-      // A setlist pointing at a track the capture does not hold is worth
-      // seeing, so it is reported as a stub rather than dropped or thrown on.
-      if (!t) return { id: id, name: id, lengthInSec: null, bpm: null,
-                       trashed: false, missing: true, items: [] };
-      var items = itemsOf(t);
-      mediaCount += items.length;
-      return { id: id, name: t.name || id, lengthInSec: nul(t.lengthInSec),
-               bpm: nul(t.bpm), trashed: !!t.trashed, items: items };
-    });
-    totals.transports++;
-    totals.tracks += tracks.length;
-    totals.media += mediaCount;
-    return { name: tr.name, setlist: tr.setlist, trackCount: tracks.length,
-             mediaCount: mediaCount, tracks: tracks };
+  // `tracks` order is kept as the capture wrote it -- the plugin sorts by id, so
+  // the report reads alphabetically and a track sits in the same place between
+  // captures. There is no running order to preserve once setlists are out of it.
+  var totals = { tracks: 0, media: 0 };
+  var tracks = (snap.tracks || []).map(function (t) {
+    var items = itemsOf(t);
+    totals.tracks++;
+    totals.media += items.length;
+    return { id: String(t.id), name: t.name || String(t.id),
+             lengthInSec: nul(t.lengthInSec), bpm: nul(t.bpm),
+             trashed: !!t.trashed, items: items };
   });
 
-  // A track on two setlists is listed under both, and its media counted twice.
-  // That is the opposite of diffSnapshots, where the same track deliberately
-  // diffs once -- there the question is "what changed in the showfile", and one
-  // edit reported twice is a wrong answer. Here the question is "what does this
-  // setlist play", and a song in two shows is loaded for both of them.
-  return { transports: transports, totals: totals };
+  return { tracks: tracks, totals: totals };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

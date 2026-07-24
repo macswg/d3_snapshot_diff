@@ -208,12 +208,6 @@
     flex: none; width: 4ch; text-align: right; color: var(--dim);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
-  .mtrack.gone {
-    display: flex; gap: 8px; align-items: baseline; padding: 2px 0;
-    font-size: 12px; color: var(--dim);
-  }
-  .mtrack.gone .grow { margin-left: auto; }
-  .mtrack.gone .r { color: var(--rm-fg); }
   /* Grid, not flex: the fixed columns resolve identically in every track, so
      the version column lines up down the whole report and not merely within
      one track. Each cell clips rather than wraps — 1730 rows are only
@@ -603,14 +597,10 @@ function renderItem(it) {
     '<span class="mt">' + esc(span) + '</span></div>';
 }
 
+// No `missing` case any more: the report reads `tracks` directly, so there are
+// no setlist references left to dangle.
 function renderTrack(w) {
   var t = w.track;
-  if (t.missing) {
-    return '<div class="mtrack gone"><span class="tnum">' + w.pos + '</span>' +
-      '<span>' + markup(t.name) + '</span>' +
-      '<span class="grow r">on the setlist, not in this capture</span></div>';
-  }
-
   var meta = [];
   if (t.lengthInSec !== null) meta.push(clock(t.lengthInSec));
   if (t.bpm !== null) meta.push(t.bpm + ' bpm');
@@ -633,26 +623,12 @@ function renderTrack(w) {
   return html + '</div></details>';
 }
 
-function renderTransport(tp, list) {
-  var html = '<section class="tp"><div class="tphead">' +
-    '<span class="tpname">' + markup(tp.name) + '</span>' +
-    '<span class="of">' + markup(tp.setlist) + '</span>' +
-    '<button type="button" class="tpx">expand all</button>' +
-    '<span class="grow of">' + plural(tp.trackCount, 'track') + ' · ' +
-    tp.mediaCount + ' media</span></div>';
-  html += list.length
-    ? list.map(renderTrack).join('')
-    : '<div class="note">No tracks on this setlist.</div>';
-  return html + '</section>';
-}
-
-/* Collapsed by default: a transport on the automatic setlist is 127 tracks and
- * 1700-odd rows, and opening it on load buries the other three transports under
- * a screen-height of scrollbar. The summary line carries the count, so the
- * closed state still answers "how much does this song load".
+/* Collapsed by default: 127 tracks opened at once is 1,700-odd rows and a
+ * screen-height of scrollbar before the second song. The closed summary line
+ * carries length, bpm and media count, which is usually the whole question.
  */
-function wrapAll(tp) {
-  return tp.tracks.map(function (t, i) {
+function wrapAll(tracks) {
+  return tracks.map(function (t, i) {
     return { track: t, items: t.items, pos: i + 1, context: false, open: false };
   });
 }
@@ -661,11 +637,10 @@ function wrapAll(tp) {
  * because a media row matched shows just those rows and dims its name, the same
  * bargain the tree makes with .node.context. Matches open the block, since a hit
  * you cannot see is not a hit. */
-function filterTransport(tp) {
-  var base = (plain(tp.name) + ' ' + plain(tp.setlist) + ' ').toLowerCase();
+function filterTracks(tracks) {
   var out = [], n = 0;
-  tp.tracks.forEach(function (t, i) {
-    var path = base + trackHay(t);
+  tracks.forEach(function (t, i) {
+    var path = trackHay(t);
     if (hitsText(path)) {
       n++;
       t.items.forEach(function (it) { if (hitsText(path + ' ' + itemHay(it))) n++; });
@@ -681,6 +656,14 @@ function filterTransport(tp) {
   return { list: out, hits: n };
 }
 
+function renderReport(list) {
+  return '<section class="tp"><div class="tphead">' +
+    '<span class="tpname">Media by track</span>' +
+    '<button type="button" class="tpx">expand all</button>' +
+    '<span class="grow of">' + plural(list.length, 'track') + '</span></div>' +
+    list.map(renderTrack).join('') + '</section>';
+}
+
 function paintMedia() {
   var out = document.getElementById('media');
   var count = document.getElementById('matches');
@@ -690,25 +673,20 @@ function paintMedia() {
     out.innerHTML = '<p class="hint">Load an After snapshot to list its media.</p>';
     return;
   }
-  if (!lastReport.transports.length) {
-    out.innerHTML = '<p class="empty">This snapshot has no transports, so nothing loads media.</p>';
+  if (!lastReport.tracks.length) {
+    out.innerHTML = '<p class="empty">This snapshot holds no tracks.</p>';
     return;
   }
   if (!query) {
-    out.innerHTML = lastReport.transports.map(function (tp) {
-      return renderTransport(tp, wrapAll(tp));
-    }).join('');
+    out.innerHTML = renderReport(wrapAll(lastReport.tracks));
     return;
   }
 
-  var html = '', n = 0;
-  lastReport.transports.forEach(function (tp) {
-    var f = filterTransport(tp);
-    n += f.hits;
-    if (f.list.length) html += renderTransport(tp, f.list);
-  });
-  count.textContent = n ? plural(n, 'match') : 'no matches';
-  out.innerHTML = n ? html : '<p class="empty">Nothing matches “' + esc(query) + '”.</p>';
+  var f = filterTracks(lastReport.tracks);
+  count.textContent = f.hits ? plural(f.hits, 'match') : 'no matches';
+  out.innerHTML = f.hits
+    ? renderReport(f.list)
+    : '<p class="empty">Nothing matches \u201c' + esc(query) + '\u201d.</p>';
 }
 
 /* Summary ----------------------------------------------------------------- */
@@ -830,8 +808,7 @@ function setTab(name) {
 
   var t = lastReport ? lastReport.totals : null;
   document.getElementById('tally').innerHTML = changes ? changeTally : (t
-    ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks +
-      '</b> tracks &nbsp; <b>' + t.media + '</b> media'
+    ? '<b>' + t.tracks + '</b> tracks &nbsp; <b>' + t.media + '</b> media'
     : '');
   paint();
 }
