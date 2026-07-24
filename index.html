@@ -175,7 +175,7 @@
   .oline.added .t { color: var(--add-fg); }
   .oline.removed .t { color: var(--rm-fg); }
 
-  /* Media report ------------------------------------------------------------
+  /* Media report, and the transport report under it ---------------------------
      Tracks reuse details.order: a setlist runs past a hundred entries here too,
      and a second collapsible look for the same gesture would just be a second
      thing to learn. Only the geometry is overridden. */
@@ -230,6 +230,11 @@
      dimmed and labelled rather than dropped. */
   .mitem.off .mn { color: var(--dim); }
 
+  /* Transport report. A running order is a running order, so its rows are the
+     tree's .oline rather than a third kind of line -- only the trailing meta is
+     new, and .grow is scoped per block on this page rather than global. */
+  .oline .grow { margin-left: auto; color: var(--dim); white-space: nowrap; }
+
   #notes { padding: 0 24px 12px; }
   #notes[hidden] { display: none; }
   #notes p {
@@ -279,6 +284,7 @@
 <nav id="tabs">
   <button type="button" class="tab on" data-tab="changes">Changes</button>
   <button type="button" class="tab" data-tab="media">Media report</button>
+  <button type="button" class="tab" data-tab="transports">Transport info</button>
 </nav>
 
 <div id="bar">
@@ -295,6 +301,7 @@
 <main>
   <div id="out"><p class="hint">Pick two snapshots to compare.</p></div>
   <div id="media" hidden></div>
+  <div id="transports" hidden></div>
 </main>
 
 <footer>
@@ -689,6 +696,148 @@ function paintMedia() {
     : '<p class="empty">Nothing matches \u201c' + esc(query) + '\u201d.</p>';
 }
 
+/* Transport report ---------------------------------------------------------
+ * What each transport is loaded with: its setlist, and the tracks on it in
+ * running order. The other half of what the media report used to conflate.
+ * Deliberately no media rows: a setlist is a running order, and 1,700 clip rows
+ * hanging off one is exactly what made the combined view unreadable.
+ */
+
+function transportHay(tr) {
+  return (plain(tr.name) + ' ' + plain(tr.setlist) + ' ' + plain(tr.error)).toLowerCase();
+}
+
+// The fault words are in the haystack because the row prints them: searching
+// `missing` is how you find the setlist pointing at a track nobody captured.
+function tlineHay(t) {
+  return (plain(t.id) + ' ' + plain(t.name) +
+          (t.trashed ? ' in the trash' : '') +
+          (t.missing ? ' missing' : '')).toLowerCase();
+}
+
+function renderTline(w) {
+  var t = w.track, meta = [];
+  if (t.lengthInSec !== null) meta.push(clock(t.lengthInSec));
+  if (t.bpm !== null) meta.push(t.bpm + ' bpm');
+
+  // .removed on the row so a dangling reference reads in the removed colour
+  // like everything else that is not there; the word is printed as well, since
+  // a red title on its own only says "something".
+  return '<div class="oline' + (t.missing ? ' removed' : '') + '">' +
+    '<span class="pos">' + w.pos + '</span>' +
+    '<span class="t">' + markup(t.name) + '</span>' +
+    // The word is `missing`, not a fuller phrase, because that is the word
+    // someone types into the box; the explanation goes in the title, where it
+    // costs no width on a row that is mostly title.
+    (t.missing ? '<span class="r" title="the setlist references a track this capture does not hold">missing</span>' : '') +
+    (t.trashed ? '<span class="r">in the trash</span>' : '') +
+    '<span class="grow of">' + esc(meta.join(' · ')) + '</span></div>';
+}
+
+function renderTransport(w) {
+  var tr = w.transport;
+
+  // The closed line has to answer the question on its own -- with 126 tracks
+  // under one transport, opening it to find out what it is loaded with defeats
+  // the collapse. Name, setlist, count, and anything wrong.
+  var faults = [];
+  if (tr.missingCount) faults.push(tr.missingCount + ' missing');
+  var trashed = 0;
+  tr.tracks.forEach(function (t) { if (t.trashed) trashed++; });
+  if (trashed) faults.push(trashed + ' in the trash');
+
+  var html = '<details class="order mtrack' + (w.context ? ' context' : '') + '"' +
+    (w.open ? ' open' : '') + '>' +
+    '<summary><span class="tnum">' + w.pos + '</span>' +
+    '<span class="tname">' + markup(tr.name) + '</span>' +
+    '<span class="of">' + (tr.setlist ? markup(tr.setlist) : 'no setlist') + '</span>' +
+    (tr.error ? '<span class="r trash">' + markup(tr.error) + '</span>' : '') +
+    (faults.length ? '<span class="r trash">' + esc(faults.join(' · ')) + '</span>' : '') +
+    '<span class="grow of">' + esc(plural(w.tracks.length, 'track')) + '</span></summary>' +
+    '<div class="lines">';
+  html += w.tracks.length
+    ? w.tracks.map(renderTline).join('')
+    : '<div class="note">Nothing on this setlist.</div>';
+  return html + '</div></details>';
+}
+
+// Positions are the running order, so they are stamped before any filtering --
+// a search that renumbered the tracks it kept would be answering a different
+// question from the one the tab exists for.
+function numbered(tracks) {
+  return tracks.map(function (t, i) { return { track: t, pos: i + 1 }; });
+}
+
+function wrapTransports(list) {
+  return list.map(function (tr, i) {
+    return { transport: tr, tracks: numbered(tr.tracks), pos: i + 1,
+             context: false, open: false };
+  });
+}
+
+/* Same bargain as the media report: a transport whose own name or setlist
+ * matches shows its whole running order, one kept only because a track matched
+ * shows just those tracks and dims. */
+function filterTransports(list) {
+  var out = [], n = 0;
+  list.forEach(function (tr, i) {
+    var path = transportHay(tr);
+    if (hitsText(path)) {
+      n++;
+      tr.tracks.forEach(function (t) { if (hitsText(path + ' ' + tlineHay(t))) n++; });
+      out.push({ transport: tr, tracks: numbered(tr.tracks), pos: i + 1,
+                 context: false, open: true });
+      return;
+    }
+    var kept = numbered(tr.tracks).filter(function (w) {
+      return hitsText(path + ' ' + tlineHay(w.track));
+    });
+    if (kept.length) {
+      n += kept.length;
+      out.push({ transport: tr, tracks: kept, pos: i + 1, context: true, open: true });
+    }
+  });
+  return { list: out, hits: n };
+}
+
+// The header counts what is on screen, not what is in the capture: under a
+// search those differ, and the whole-capture figure is already in the tally.
+function renderTransports(list) {
+  var tracks = 0;
+  list.forEach(function (w) { tracks += w.tracks.length; });
+  return '<section class="tp"><div class="tphead">' +
+    '<span class="tpname">Tracks by transport</span>' +
+    '<button type="button" class="tpx">expand all</button>' +
+    '<span class="grow of">' + esc(plural(list.length, 'transport') + ' · ' +
+      plural(tracks, 'track')) + '</span></div>' +
+    list.map(renderTransport).join('') + '</section>';
+}
+
+function paintTransports() {
+  var out = document.getElementById('transports');
+  var count = document.getElementById('matches');
+  count.textContent = '';
+
+  if (!lastTransports) {
+    out.innerHTML = '<p class="hint">Load an After snapshot to see what each transport is loaded with.</p>';
+    return;
+  }
+  if (!lastTransports.transports.length) {
+    out.innerHTML = '<p class="empty">This snapshot holds no transports.</p>';
+    return;
+  }
+  if (!query) {
+    out.innerHTML = renderTransports(wrapTransports(lastTransports.transports));
+    return;
+  }
+
+  var f = filterTransports(lastTransports.transports);
+  count.textContent = f.hits ? plural(f.hits, 'match') : 'no matches';
+  out.innerHTML = f.hits
+    ? renderTransports(f.list)
+    : '<p class="empty">Nothing matches “' + esc(query) + '”.</p>';
+}
+
 /* Summary ----------------------------------------------------------------- */
 
 // "match" needs -es, not -s. Cheap rule, but it covers every word this page
@@ -752,7 +901,7 @@ function renderSummary(result) {
 // Diffing a big pair is not free, so it happens once per snapshot change and
 // searching re-renders from the held result rather than re-running the engine.
 // Same for the report, which walks every layer of every track.
-var lastResult = null, lastReport = null;
+var lastResult = null, lastReport = null, lastTransports = null;
 var tab = 'changes', changeTally = '', hasNotes = false;
 
 function render() {
@@ -761,6 +910,7 @@ function render() {
   // Built from After alone. Gating this on both slots -- as the diff must be --
   // would blank a tab that already has everything it needs.
   lastReport = snaps.b ? mediaReport(snaps.b) : null;
+  lastTransports = snaps.b ? transportReport(snaps.b) : null;
 
   if (snaps.a && snaps.b) {
     lastResult = diffSnapshots(snaps.a, snaps.b);
@@ -785,6 +935,12 @@ function render() {
   setTab(tab);
 }
 
+var PLACEHOLDER = {
+  changes: 'Search changes… (name, field, value)',
+  media: 'Search media… (track, file, version)',
+  transports: 'Search transports… (transport, setlist, track)'
+};
+
 /* Only one panel is ever visible. The bar and the search box are shared: the
  * query is about the snapshots, not about the tab, so switching re-filters the
  * other panel with the same terms instead of leaving it stale. */
@@ -797,19 +953,21 @@ function setTab(name) {
     else btns[i].classList.remove('on');
   }
   document.getElementById('out').hidden = !changes;
-  document.getElementById('media').hidden = changes;
+  document.getElementById('media').hidden = tab !== 'media';
+  document.getElementById('transports').hidden = tab !== 'transports';
   // The summary and the notes describe the diff, so they belong to its tab.
   document.getElementById('summary').hidden =
     !(changes && lastResult && lastResult.nodes.length);
   document.getElementById('notes').hidden = !(changes && hasNotes);
-  document.getElementById('q').placeholder = changes
-    ? 'Search changes… (name, field, value)'
-    : 'Search media… (track, file, version)';
+  document.getElementById('q').placeholder = PLACEHOLDER[tab];
 
-  var t = lastReport ? lastReport.totals : null;
-  document.getElementById('tally').innerHTML = changes ? changeTally : (t
-    ? '<b>' + t.tracks + '</b> tracks &nbsp; <b>' + t.media + '</b> media'
-    : '');
+  var m = lastReport ? lastReport.totals : null;
+  var t = lastTransports ? lastTransports.totals : null;
+  document.getElementById('tally').innerHTML =
+    changes ? changeTally :
+    tab === 'media' ? (m
+      ? '<b>' + m.tracks + '</b> tracks &nbsp; <b>' + m.media + '</b> media' : '') :
+    (t ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks + '</b> tracks' : '');
   paint();
 }
 
@@ -817,6 +975,7 @@ function setTab(name) {
  * not re-diff. */
 function paint() {
   if (tab === 'media') { paintMedia(); return; }
+  if (tab === 'transports') { paintTransports(); return; }
 
   var out = document.getElementById('out');
   var count = document.getElementById('matches');
@@ -852,14 +1011,17 @@ wire('dropB', 'fileB', 'b');
   });
 
   // Delegated, because the report is redrawn on every keystroke and a listener
-  // bound per section would be re-bound with it.
-  document.getElementById('media').addEventListener('click', function (e) {
+  // bound per section would be re-bound with it. Both report panels collapse
+  // the same details.mtrack blocks, so they share the one handler.
+  function expander(e) {
     if (!e.target.classList || !e.target.classList.contains('tpx')) return;
     var rows = e.target.parentNode.parentNode.querySelectorAll('details.mtrack');
     var open = e.target.textContent === 'expand all';
     for (var i = 0; i < rows.length; i++) rows[i].open = open;
     e.target.textContent = open ? 'collapse all' : 'expand all';
-  });
+  }
+  document.getElementById('media').addEventListener('click', expander);
+  document.getElementById('transports').addEventListener('click', expander);
 })();
 
 (function () {

@@ -440,8 +440,9 @@ function summarize(result) {
  *
  * Deliberately flat. Grouping by transport meant a track on three setlists was
  * listed three times and its media counted three times, so a 1,734-media show
- * reported 2,931 -- an inventory whose total is not the inventory. Setlists are
- * the diff tab's business; this one is about what is programmed in the tracks.
+ * reported 2,931 -- an inventory whose total is not the inventory. What each
+ * transport has loaded is a real question, just a different one; it is
+ * `transportReport` below.
  */
 function mediaReport(snap) {
   snap = snap || {};
@@ -495,8 +496,62 @@ function mediaReport(snap) {
   return { tracks: tracks, totals: totals };
 }
 
+/* What each transport has loaded: its setlist and the tracks on it, in running
+ * order. The other half of what the media report used to conflate -- there the
+ * question is "what is programmed", here it is "what is this transport playing",
+ * and the same track legitimately appears under every setlist that holds it.
+ *
+ * Returns {transports:[{name, setlist, error, trackCount, missingCount,
+ *                       tracks:[{id, name, lengthInSec, bpm, trashed, missing}]}],
+ *          totals:{transports, tracks}}.
+ *
+ * No media. A setlist is a running order, and 1,700 clip rows underneath one is
+ * what made the combined view unreadable.
+ */
+function transportReport(snap) {
+  snap = snap || {};
+
+  // Index once rather than scanning per ref: 4 transports over 127 tracks is
+  // small, but the automatic setlist alone is 126 refs and this is the same
+  // quadratic shape the media report avoids. First id wins -- ids are unique in
+  // practice, and a capture that repeats one must report rather than throw.
+  var byId = Object.create(null);
+  (snap.tracks || []).forEach(function (t) {
+    var k = String(t.id);
+    if (!(k in byId)) byId[k] = t;
+  });
+
+  function nul(v) { return v === undefined ? null : v; }
+
+  var totals = { transports: 0, tracks: 0 };
+  var transports = (snap.transports || []).map(function (tr) {
+    var missingCount = 0;
+    // trackRefs order IS the running order. Never sorted -- the order is the
+    // information, which is the whole reason to look at a setlist.
+    var tracks = (tr.trackRefs || []).map(function (ref) {
+      var id = String(ref), t = byId[id];
+      // A setlist naming a track the capture does not hold is a real fault in
+      // the show, so it is reported rather than dropped.
+      if (!t) {
+        missingCount++;
+        return { id: id, name: id, lengthInSec: null, bpm: null,
+                 trashed: false, missing: true };
+      }
+      return { id: id, name: t.name || id, lengthInSec: nul(t.lengthInSec),
+               bpm: nul(t.bpm), trashed: !!t.trashed, missing: false };
+    });
+    totals.transports++;
+    totals.tracks += tracks.length;
+    return { name: tr.name, setlist: tr.setlist, error: nul(tr.error),
+             trackCount: tracks.length, missingCount: missingCount,
+             tracks: tracks };
+  });
+
+  return { transports: transports, totals: totals };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
-                     mediaReport: mediaReport,
+                     mediaReport: mediaReport, transportReport: transportReport,
                      matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
 }

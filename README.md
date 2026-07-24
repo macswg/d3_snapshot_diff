@@ -87,11 +87,12 @@ d3 keeps a deleted track under `trash/`, and a setlist can go on referencing it.
 It plays like any other song, and it is never in the census — so without being
 told, nothing in the output gives it away.
 
-v5 captures `trashed` per track, and both tabs say so: the tree marks it on the
+v5 captures `trashed` per track, and every tab says so: the tree marks it on the
 track's row and reports a track moving to the trash as a change like any other,
-and the media report badges it in the removed colour next to the track name.
-Searching `trash` in the media report answers "does any setlist still play
-something I deleted", which is the question worth asking.
+while the media report and transport info badge it in the removed colour beside
+the track name. Searching `trash` answers "does any setlist still play something
+I deleted", which is the question worth asking — and transport info tells you
+which setlist.
 
 ### Running order
 
@@ -161,6 +162,29 @@ Two other differences from the diff tab:
 `mediaReport(snap)` builds it, is DOM-free like the rest of `diff.js`, and is
 covered by the self-test.
 
+## Transport info
+
+The third tab: what each transport is loaded with. A section per transport —
+its setlist, and the tracks on it **in running order**.
+
+Deliberately **no media**. A setlist is a running order, and 1,700 clip rows
+underneath one is exactly what made the combined view unreadable; that is why
+this and the media report are separate tabs rather than one screen. The two
+answer different questions and the answers have different shapes:
+
+| | question | a track on three setlists |
+|---|---|---|
+| Media report | what is programmed | listed **once** |
+| Transport info | what is each transport playing | listed **three times**, correctly |
+
+Transports start collapsed — one of them may be on `automatic` and hold every
+track in the show. A setlist naming a track that is not in the capture is shown
+as `missing` rather than dropped: it is a real fault in the show, and silently
+omitting it is how it stays one. Tracks in the trash are badged here too.
+
+`transportReport(snap)` builds it, is DOM-free like the rest of `diff.js`, and
+is covered by the self-test.
+
 ## Search
 
 One box, serving whichever tab is showing; the query survives a switch between
@@ -174,11 +198,10 @@ contains "whiskey". Track titles inside a running order are searchable too,
 folded or not.
 
 On the media report it matches track names, filenames, versions and layer names.
-A track that matches shows all its media; a track kept only because one of its
-media matched is dimmed as context, and filtered tracks open themselves.
+On transport info it matches transport names, setlists and track names.
 
-In both, a row kept only to place a match further down is dimmed: it is context,
-not a hit. The count is of actual hits. Escape clears.
+In all three, a row kept only to place a match further down is dimmed: it is
+context, not a hit. The count is of actual hits. Escape clears.
 
 ## Logs on a shared drive
 
@@ -257,7 +280,7 @@ of `diff.js`.
 ## Layout
 
 ```
-index.html        UI, both tabs, rendering and file loading. All the CSS.
+index.html        UI, all three tabs, rendering and file loading. All the CSS.
 diff.js           The engine. No DOM access — usable from node.
 tools/selftest.js Regression checks against real captures.
 tools/deploy.sh   Version bump, commit, push, wait for Pages.
@@ -311,6 +334,21 @@ DOM-free:
 It reads `snap.tracks` and never looks at `transports`, so every track appears
 exactly once and `totals.media` is the media in the capture rather than a sum
 over setlists.
+
+`transportReport(snap)` builds the transport tab from a single snapshot, and is
+likewise DOM-free:
+
+```js
+{
+  transports: [ { name, setlist, error, trackCount, missingCount,
+    tracks: [ { id, name, lengthInSec, bpm, trashed, missing } ] } ],
+  totals: { transports, tracks }
+}
+```
+
+`tracks` is in `trackRefs` order — the running order is the information, so it
+is never sorted. `missing` marks a reference with no track in the capture. No
+media: that is `mediaReport`'s job, and keeping them apart is the point.
 
 `summarize(result)` rolls the diff tree up for the panel on the page, and is
 likewise DOM-free:

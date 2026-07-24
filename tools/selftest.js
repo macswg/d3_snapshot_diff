@@ -536,5 +536,80 @@ check('a snapshot with no tracks returns empty structures',
 check('an entirely empty snapshot does not throw',
       (function () { return diff.mediaReport({}).totals.tracks === 0; })());
 
+console.log('\ntransport info');
+/* The other half of what the media report used to conflate. Here the same track
+ * legitimately appears under every setlist holding it -- the question is what a
+ * transport is playing, not what exists. */
+var trep = diff.transportReport(A);
+check('every transport is reported, in the capture\'s order',
+      trep.transports.map(function (t) { return t.name; }).join('|') ===
+      A.transports.map(function (t) { return t.name; }).join('|'),
+      JSON.stringify(trep.transports.map(function (t) { return t.name; })));
+check('tracks are in running order, never sorted',
+      trep.transports.every(function (t, i) {
+        return t.tracks.map(function (k) { return k.id; }).join('|') ===
+               (A.transports[i].trackRefs || []).map(String).join('|');
+      }),
+      JSON.stringify(trep.transports[0].tracks.slice(0, 3).map(function (k) { return k.id; })));
+check('a transport on the automatic setlist is reported, not filtered out',
+      diff.transportReport(census).transports
+        .filter(function (t) { return t.setlist === 'automatic'; }).length === 1);
+// A track on two setlists appears under both -- the opposite of the media
+// report, and correct here for the opposite reason.
+// Against `census`, not A: sharedId is defined as a track two of *census's*
+// transports reference, and A on its own may reference it only once.
+if (sharedId) {
+  check('a shared track is listed under every transport that references it',
+        diff.transportReport(census).transports.filter(function (t) {
+          return t.tracks.some(function (k) { return k.id === sharedId; });
+        }).length > 1);
+}
+check('counts match the rows actually listed',
+      trep.transports.every(function (t) {
+        return t.trackCount === t.tracks.length &&
+               t.missingCount === t.tracks.filter(function (k) { return k.missing; }).length;
+      }) &&
+      trep.totals.transports === trep.transports.length &&
+      trep.totals.tracks === trep.transports.reduce(function (n, t) { return n + t.tracks.length; }, 0),
+      JSON.stringify(trep.totals));
+
+// A setlist naming a track the capture does not hold is a fault in the show.
+// Dropping it silently would hide exactly the thing worth seeing.
+var dangling = JSON.parse(JSON.stringify(A));
+dangling.transports = [{ name: 'only', setlist: 'x', trackRefs: ['no_such_track_id'], trackCount: 1 }];
+var dg = diff.transportReport(dangling).transports[0];
+check('a dangling trackRef is reported as missing rather than dropped or thrown on',
+      dg.tracks.length === 1 && dg.tracks[0].missing === true &&
+      dg.tracks[0].id === 'no_such_track_id' && dg.missingCount === 1,
+      JSON.stringify(dg));
+check('a track that is present carries missing false',
+      trep.transports[0].tracks.every(function (k) { return k.missing === false; }));
+
+// No media, deliberately: a setlist is a running order, and 1,700 clip rows
+// under one is what made the combined view unreadable.
+check('no media rides along on a transport listing',
+      trep.transports.every(function (t) {
+        return t.tracks.every(function (k) { return !('items' in k) && !('media' in k); });
+      }));
+
+check('the trashed flag survives into the running order',
+      diff.transportReport(trashB).transports.some(function (t) {
+        return t.tracks.some(function (k) { return k.trashed; });
+      }));
+
+check('a snapshot with no transports returns empty structures',
+      (function () {
+        var e = diff.transportReport({ tracks: A.tracks });
+        return e.transports.length === 0 && e.totals.transports === 0 && e.totals.tracks === 0;
+      })());
+check('a transport with no trackRefs returns an empty track list',
+      (function () {
+        var e = diff.transportReport({ transports: [{ name: 'x', setlist: 'y' }], tracks: null });
+        return e.transports.length === 1 && e.transports[0].tracks.length === 0 &&
+               e.transports[0].trackCount === 0;
+      })());
+check('an entirely empty snapshot does not throw',
+      (function () { return diff.transportReport({}).totals.transports === 0; })());
+
 console.log('\n' + (failures ? failures + ' failing' : 'all passing'));
 process.exit(failures ? 1 : 0);
