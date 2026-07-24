@@ -12,6 +12,12 @@
 // only produce noise -- a layer added already reports itself.
 var TRACK_FIELDS = ['lengthInSec', 'lengthInBeats', 'bpm', 'hasTimecode', 'fps',
                     'firstTimecodeBeat'];
+// A field is either a key, or [key, display label] where the raw name would
+// mislead. `trackCount` is the one that matters: at both snapshot and transport
+// level it counts setlist membership, not tracks in the showfile.
+var SNAPSHOT_FIELDS  = ['project', 'scope', 'activeTransport', 'transportCount',
+                        ['trackCount', 'tracks in setlists']];
+var TRANSPORT_FIELDS = ['setlist', ['trackCount', 'tracks in setlist'], 'error'];
 var LAYER_FIELDS = ['type', 'renderEnable', 'tStart', 'tEnd', 'bStart', 'bEnd',
                     'tcStart', 'tcEnd'];
 var MEDIA_FIELDS = ['name', 'path', 'version', 'hasAudio', 'regionSet'];
@@ -26,6 +32,8 @@ function sameValue(a, b) {
   return a === b;
 }
 
+function plural(n, one) { return n + ' ' + one + (n === 1 ? '' : 's'); }
+
 function fmt(v) {
   if (v === null || v === undefined) return '—';
   if (typeof v === 'number') return String(Math.round(v * 1000) / 1000);
@@ -33,12 +41,15 @@ function fmt(v) {
   return String(v);
 }
 
-/* Compare a field set across two entities -> [{field, from, to}]. */
+/* Compare a field set across two entities -> [{field, from, to}].
+ * An entry may be `key` or `[key, label]`; `field` carries the label, since it
+ * is what the page prints, ranks and searches on. */
 function fieldChanges(a, b, fields) {
   var out = [];
   for (var i = 0; i < fields.length; i++) {
-    var f = fields[i];
-    if (!sameValue(a[f], b[f])) out.push({ field: f, from: a[f], to: b[f] });
+    var f = fields[i], key = f, label = f;
+    if (f instanceof Array) { key = f[0]; label = f[1]; }
+    if (!sameValue(a[key], b[key])) out.push({ field: label, from: a[key], to: b[key] });
   }
   return out;
 }
@@ -153,14 +164,47 @@ function diffCues(trackA, trackB) {
   return nodes;
 }
 
+/* What the capture can say about the showfile's track list.
+ *
+ * The top-level `tracks` array is only the union of what the setlists
+ * reference, so a track vanishing from it usually means someone dropped a song
+ * from a setlist, not that they deleted it. The one transport that does census
+ * the showfile is an `automatic` setlist, which holds every track in the show;
+ * when a capture has one, its trackRefs ARE the showfile.
+ *
+ * Returns {known, set}. `known` false means this capture had no automatic
+ * transport, so absence proves nothing and no deletion may be claimed from it.
+ */
+function showfileTracks(snap) {
+  var set = Object.create(null), known = false;
+  (snap.transports || []).forEach(function (t) {
+    if (t.setlist !== 'automatic') return;
+    known = true;
+    (t.trackRefs || []).forEach(function (r) { set[String(r)] = true; });
+  });
+  return { known: known, set: set };
+}
+
+/* Returns {nodes, membership:{added, removed}}.
+ *
+ * `membership` counts tracks that entered or left the capture without the
+ * showfile being shown to have changed -- someone edited a setlist, or the
+ * other capture has no automatic transport to check against. Those are
+ * reported under the transport as running-order lines instead, so that an
+ * added or removed track in the tree always means the showfile itself.
+ */
 function diffTracks(snapA, snapB) {
+  var showA = showfileTracks(snapA), showB = showfileTracks(snapB);
   var m = matchBy(snapA.tracks, snapB.tracks, function (t) { return t.id; });
-  var nodes = [];
+  var nodes = [], membership = { added: 0, removed: 0 };
   m.added.forEach(function (t) {
+    // Genuinely new only if Before censused the showfile and this was not in it.
+    if (!(showA.known && !showA.set[String(t.id)])) { membership.added++; return; }
     nodes.push({ kind: 'added', entity: 'track', label: 'track ' + t.id,
                  detail: t.layerCount + ' layers' });
   });
   m.removed.forEach(function (t) {
+    if (!(showB.known && !showB.set[String(t.id)])) { membership.removed++; return; }
     nodes.push({ kind: 'removed', entity: 'track', label: 'track ' + t.id,
                  detail: t.layerCount + ' layers' });
   });
@@ -172,7 +216,61 @@ function diffTracks(snapA, snapB) {
                    changes: ch, children: kids });
     }
   });
-  return nodes;
+  return { nodes: nodes, membership: membership, showA: showA, showB: showB };
+}
+
+/* Line-diff two running orders -> {entries, counts}.
+ *
+ * A setlist runs to a hundred-odd entries, so the old rendering -- both orders
+ * joined with " > " into one before/after pair of strings -- was unreadable
+ * exactly when it mattered. Here each track gets its own entry, tagged with
+ * where it sat on each side, so the page can print it a line at a time.
+ *
+ * Longest common subsequence, then a move-pairing pass: a track that is on both
+ * setlists but off the common subsequence has been reshuffled, not deleted and
+ * re-added, and reads as one `moved` line rather than a − and a + far apart.
+ */
+function orderDiff(listA, listB) {
+  var a = (listA || []).map(String), b = (listB || []).map(String);
+  var n = a.length, m = b.length, w = m + 1, dp = [], i, j;
+
+  for (i = 0; i < (n + 1) * w; i++) dp[i] = 0;
+  for (i = n - 1; i >= 0; i--) {
+    for (j = m - 1; j >= 0; j--) {
+      dp[i * w + j] = a[i] === b[j]
+        ? dp[(i + 1) * w + (j + 1)] + 1
+        : Math.max(dp[(i + 1) * w + j], dp[i * w + (j + 1)]);
+    }
+  }
+
+  var out = [];
+  i = 0; j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ kind: 'same', id: a[i], a: i, b: j }); i++; j++; }
+    else if (dp[(i + 1) * w + j] >= dp[i * w + (j + 1)]) { out.push({ kind: 'removed', id: a[i], a: i, b: null }); i++; }
+    else { out.push({ kind: 'added', id: b[j], a: null, b: j }); j++; }
+  }
+  while (i < n) { out.push({ kind: 'removed', id: a[i], a: i, b: null }); i++; }
+  while (j < m) { out.push({ kind: 'added', id: b[j], a: null, b: j }); j++; }
+
+  var addedAt = Object.create(null), drop = Object.create(null);
+  out.forEach(function (e, k) {
+    if (e.kind === 'added') (addedAt[e.id] = addedAt[e.id] || []).push(k);
+  });
+  out.forEach(function (e) {
+    if (e.kind !== 'removed') return;
+    var q = addedAt[e.id];
+    if (!q || !q.length) return;
+    var k = q.shift();
+    e.kind = 'moved'; e.b = out[k].b; drop[k] = true;
+  });
+  out = out.filter(function (e, k) { return !drop[k]; });
+
+  var counts = { same: 0, moved: 0, added: 0, removed: 0 };
+  out.forEach(function (e) { counts[e.kind]++; });
+  counts.a = n; counts.b = m;
+  counts.changed = counts.moved + counts.added + counts.removed;
+  return { entries: out, counts: counts };
 }
 
 function diffTransports(snapA, snapB) {
@@ -182,26 +280,50 @@ function diffTransports(snapA, snapB) {
   m.added.forEach(function (t) { nodes.push({ kind: 'added', entity: 'transport', label: 'transport ' + t.name }); });
   m.removed.forEach(function (t) { nodes.push({ kind: 'removed', entity: 'transport', label: 'transport ' + t.name }); });
   m.common.forEach(function (p) {
-    var ch = fieldChanges(p.a, p.b, ['setlist', 'trackCount', 'error']);
+    var ch = fieldChanges(p.a, p.b, TRANSPORT_FIELDS);
     // The running order of a setlist is showfile state: a reordered show is a
-    // real change even when every track in it is untouched.
-    var ra = (p.a.trackRefs || []).join(' > '), rb = (p.b.trackRefs || []).join(' > ');
-    if (ra !== rb) ch.push({ field: 'running order', from: ra, to: rb });
-    if (ch.length) nodes.push({ kind: 'changed', entity: 'transport', label: 'transport ' + p.b.name, changes: ch });
+    // real change even when every track in it is untouched. It rides on the
+    // node as `order` rather than as a field change, because it is a list and
+    // the page renders it as one.
+    var order = orderDiff(p.a.trackRefs, p.b.trackRefs);
+    if (ch.length || order.counts.changed) {
+      nodes.push({ kind: 'changed', entity: 'transport', label: 'transport ' + p.b.name,
+                   changes: ch, order: order.counts.changed ? order : null });
+    }
   });
   return nodes;
 }
 
-/* Top level. Returns {meta, nodes, counts}. */
+/* Top level. Returns {meta, nodes, counts, notes}. */
 function diffSnapshots(snapA, snapB) {
   var nodes = [];
 
-  var top = fieldChanges(snapA, snapB, ['project', 'scope', 'activeTransport',
-                                        'transportCount', 'trackCount']);
+  var top = fieldChanges(snapA, snapB, SNAPSHOT_FIELDS);
   if (top.length) nodes.push({ kind: 'changed', entity: 'snapshot', label: 'snapshot', changes: top });
 
+  var tracks = diffTracks(snapA, snapB);
   nodes = nodes.concat(diffTransports(snapA, snapB));
-  nodes = nodes.concat(diffTracks(snapA, snapB));
+  nodes = nodes.concat(tracks.nodes);
+
+  // Say out loud what was held back, and why. A silently smaller tally is worse
+  // than a noisy one: it reads as "nothing happened to the tracks" when what
+  // actually happened is that the capture cannot tell.
+  var notes = [];
+  function noCensus(which) {
+    return ' The ' + which + ' capture has no transport on the automatic setlist, ' +
+           'which is the only one that lists every track in the show, so this ' +
+           'pair cannot tell a showfile edit from a setlist edit.';
+  }
+  if (tracks.membership.removed) {
+    notes.push('Not counted as deletions: ' + plural(tracks.membership.removed, 'track') +
+               ' that left the capture by dropping off a setlist.' +
+               (tracks.showB.known ? '' : noCensus('After')));
+  }
+  if (tracks.membership.added) {
+    notes.push('Not counted as additions: ' + plural(tracks.membership.added, 'track') +
+               ' that entered the capture by joining a setlist.' +
+               (tracks.showA.known ? '' : noCensus('Before')));
+  }
 
   var counts = { added: 0, removed: 0, changed: 0 };
   (function walk(list) {
@@ -217,7 +339,8 @@ function diffSnapshots(snapA, snapB) {
       b: { capturedAt: snapB.capturedAt, project: snapB.project, version: snapB.schemaVersion }
     },
     nodes: nodes,
-    counts: counts
+    counts: counts,
+    notes: notes
   };
 }
 
@@ -247,6 +370,14 @@ function summarize(result) {
         if (!byField[k]) byField[k] = { entity: e, field: c.field, count: 0 };
         byField[k].count++;
       });
+      // A running order counts once, not once per line: a reshuffled setlist is
+      // one edit, and letting its hundred lines into the ranking would bury
+      // every other field under it.
+      if (n.order) {
+        var ko = e + ' running order';
+        if (!byField[ko]) byField[ko] = { entity: e, field: 'running order', count: 0 };
+        byField[ko].count++;
+      }
       if (n.children) walk(n.children);
     });
   })(result.nodes);
@@ -262,8 +393,11 @@ function summarize(result) {
 
   // Weight of a top-level node = everything reported beneath it, so a track
   // with one recut layer does not outrank one with forty.
+  // Running-order lines weigh here even though they are not nodes: a setlist
+  // that lost a hundred tracks is the most affected thing in the diff, and
+  // ranking it at 1 next to a track with one retimed layer is just wrong.
   function weigh(n) {
-    var c = 1;
+    var c = 1 + (n.order ? n.order.counts.changed : 0);
     (n.children || []).forEach(function (k) { c += weigh(k); });
     return c;
   }
@@ -276,5 +410,5 @@ function summarize(result) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
-                     matchBy: matchBy, fmt: fmt };
+                     matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
 }

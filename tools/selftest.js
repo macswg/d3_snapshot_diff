@@ -30,7 +30,7 @@ function findings(nodes) {         // flatten the tree to "kind label" strings
   })(nodes);
   return out;
 }
-function changedFields(nodes, label) {
+function nodeAt(nodes, label) {
   var hit = null;
   (function walk(list) {
     list.forEach(function (n) {
@@ -38,7 +38,23 @@ function changedFields(nodes, label) {
       if (n.children) walk(n.children);
     });
   })(nodes);
+  return hit;
+}
+function changedFields(nodes, label) {
+  var hit = nodeAt(nodes, label);
   return hit ? (hit.changes || []).map(function (c) { return c.field; }) : null;
+}
+
+/* A capture whose first transport censuses the showfile. Track add/delete is
+ * only answerable against an `automatic` setlist -- it is the one that holds
+ * every track in the show -- so the cases below build that state explicitly
+ * rather than hoping the corpus happens to have it. */
+function withCensus(snap) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  copy.transports[0].setlist = 'automatic';
+  copy.transports[0].trackRefs = copy.tracks.map(function (t) { return t.id; });
+  copy.transports[0].trackCount = copy.transports[0].trackRefs.length;
+  return copy;
 }
 
 var files = fs.readdirSync(LOGS).filter(function (f) { return /\.json$/.test(f); }).sort();
@@ -148,24 +164,80 @@ if (!target) {
 
 // The shared-track case in reverse: a track referenced by two transports is
 // stored once, so deleting it must report once -- not per referencing setlist.
+// Both sides census the showfile, so the deletion is answerable at all.
+var census = withCensus(A);
 var refCount = {};
-A.transports.forEach(function (tr) {
+census.transports.forEach(function (tr) {
   (tr.trackRefs || []).forEach(function (id) { refCount[id] = (refCount[id] || 0) + 1; });
 });
 var sharedId = Object.keys(refCount).filter(function (id) { return refCount[id] > 1; })[0];
 if (!sharedId) {
   console.log('  skip a track shared by two transports (none in this capture)');
 } else {
-  var cut = JSON.parse(JSON.stringify(A));
+  var cut = JSON.parse(JSON.stringify(census));
   cut.tracks = cut.tracks.filter(function (t) { return String(t.id) !== sharedId; });
   cut.transports.forEach(function (tr) {
     tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return String(id) !== sharedId; });
   });
-  var gone = findings(diff.diffSnapshots(A, cut).nodes)
+  var gone = findings(diff.diffSnapshots(census, cut).nodes)
     .filter(function (s) { return /^removed track /.test(s); });
   check('a removed shared track is reported once, not per referencing transport',
         gone.length === 1, gone.join(' | '));
 }
+
+console.log('\nsetlist membership vs the showfile');
+/* The case this whole distinction exists for. Dropping songs from a setlist
+ * takes them out of the capture entirely -- the top-level `tracks` array is
+ * only the union of what the setlists reference -- and that used to report as
+ * a wall of track deletions. It is a transport edit, and nothing else. */
+var trimmed = JSON.parse(JSON.stringify(census));
+var dropIds = census.transports[0].trackRefs.slice(0, 3).map(String);
+trimmed.transports.forEach(function (tr) {
+  tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return dropIds.indexOf(String(id)) === -1; });
+  tr.trackCount = tr.trackRefs.length;
+});
+trimmed.transports[0].setlist = 'a_named_setlist';   // no longer the census
+trimmed.tracks = trimmed.tracks.filter(function (t) { return dropIds.indexOf(String(t.id)) === -1; });
+trimmed.trackCount = trimmed.tracks.length;
+var trim = diff.diffSnapshots(census, trimmed);
+check('tracks dropped from a setlist are not reported as deletions',
+      trim.counts.removed === 0 && trim.counts.added === 0,
+      JSON.stringify(trim.counts) + ' :: ' + findings(trim.nodes).slice(0, 4).join(' | '));
+check('the diff says out loud that it withheld them',
+      (trim.notes || []).length === 1 && /3 tracks/.test(trim.notes[0]),
+      JSON.stringify(trim.notes));
+check('they are reported as running-order removals on the transport instead',
+      (nodeAt(trim.nodes, 'transport ' + census.transports[0].name).order || {}).counts.removed === 3,
+      JSON.stringify(findings(trim.nodes)));
+
+// The other half: with a census on both sides, a track really leaving the
+// showfile is still a deletion. Suppressing that would trade one wrong answer
+// for another.
+var deleted = JSON.parse(JSON.stringify(census));
+var goneId = String(census.tracks[0].id);
+deleted.tracks = deleted.tracks.filter(function (t) { return String(t.id) !== goneId; });
+deleted.transports.forEach(function (tr) {
+  tr.trackRefs = (tr.trackRefs || []).filter(function (id) { return String(id) !== goneId; });
+});
+check('a track deleted from the showfile is still reported as a deletion',
+      findings(diff.diffSnapshots(census, deleted).nodes)
+        .indexOf('removed track ' + goneId) !== -1,
+      findings(diff.diffSnapshots(census, deleted).nodes).slice(0, 4).join(' | '));
+
+console.log('\ntrackCount is setlist membership');
+// Both counters follow the setlists, not the show. Labelling them `trackCount`
+// invited exactly the reading this release exists to correct.
+var fewer = JSON.parse(JSON.stringify(A));
+fewer.trackCount = A.trackCount - 1;
+fewer.transports[0].trackCount = A.transports[0].trackCount - 1;
+var lbl = diff.diffSnapshots(A, fewer);
+check('the snapshot counter says "tracks in setlists"',
+      (changedFields(lbl.nodes, 'snapshot') || []).indexOf('tracks in setlists') !== -1,
+      JSON.stringify(changedFields(lbl.nodes, 'snapshot')));
+check('the transport counter says "tracks in setlist"',
+      (changedFields(lbl.nodes, 'transport ' + A.transports[0].name) || [])
+        .indexOf('tracks in setlist') !== -1,
+      JSON.stringify(changedFields(lbl.nodes, 'transport ' + A.transports[0].name)));
 
 console.log('\nfloat tolerance');
 // Re-derived beats come back off the director as floats; a capture that yields
@@ -215,10 +287,34 @@ console.log('\nrunning order');
 var reordered = JSON.parse(JSON.stringify(A));
 reordered.transports[0].trackRefs = reordered.transports[0].trackRefs.slice().reverse();
 var ro = diff.diffSnapshots(A, reordered);
+var roNode = nodeAt(ro.nodes, 'transport ' + A.transports[0].name);
 check('a reordered setlist is a change even when no track is touched',
-      (changedFields(ro.nodes, 'transport ' + A.transports[0].name) || [])
-        .indexOf('running order') !== -1,
+      !!(roNode && roNode.order && roNode.order.counts.changed),
       JSON.stringify(findings(ro.nodes)));
+// A reshuffle is moves, not deletions and re-additions: the same tracks are on
+// the setlist afterwards, and a hundred +/- pairs would say otherwise.
+check('a reshuffle reads as moves, not as remove + add',
+      roNode.order.counts.added === 0 && roNode.order.counts.removed === 0 &&
+      roNode.order.counts.moved > 0,
+      JSON.stringify(roNode.order.counts));
+check('every running-order line names a track and both its positions',
+      roNode.order.entries.every(function (e) {
+        return e.id && (e.a !== null || e.b !== null) &&
+               (e.kind !== 'moved' || (e.a !== null && e.b !== null));
+      }));
+
+// One track pushed to the end of an otherwise untouched setlist. The line diff
+// must localise that -- an implementation that resynchronises badly reports the
+// whole tail as moved, which is the "huge changes" this replaced.
+var nudged = JSON.parse(JSON.stringify(A));
+var refs = nudged.transports[0].trackRefs;
+if (refs.length > 3) {
+  refs.push(refs.shift());
+  var nd = nodeAt(diff.diffSnapshots(A, nudged).nodes, 'transport ' + A.transports[0].name);
+  check('moving one track reports one moved line, not a cascade',
+        nd.order.counts.moved === 1 && nd.order.counts.same === refs.length - 1,
+        JSON.stringify(nd.order.counts));
+}
 
 console.log('\n' + (failures ? failures + ' failing' : 'all passing'));
 process.exit(failures ? 1 : 0);

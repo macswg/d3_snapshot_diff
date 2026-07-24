@@ -127,6 +127,47 @@
   .fields .from { color: var(--rm-fg); background: #3a1f24; }
   .fields .to   { color: var(--add-fg); background: #1c3326; }
   .fields .arrow { color: var(--dim); }
+  /* Running order. A setlist runs past a hundred entries, so it collapses:
+     the summary line alone answers "what happened to this setlist", and the
+     lines are there when you want to read down them. */
+  .order { margin: 3px 0 8px 42px; }
+  .order > summary {
+    cursor: pointer; color: var(--dim); font-size: 12px;
+    list-style: none; display: flex; gap: 8px; align-items: baseline;
+    padding: 1px 0; width: fit-content;
+  }
+  .order > summary::-webkit-details-marker { display: none; }
+  .order > summary::before { content: '▸'; font-size: 12px; width: 9px; color: var(--dim); }
+  .order[open] > summary::before { content: '▾'; }
+  .order > summary:hover { color: var(--fg); }
+  .order .k { color: var(--dim); }
+  .order .a { color: var(--add-fg); } .order .r { color: var(--rm-fg); }
+  .order .c { color: var(--ch-fg); } .order .of { color: var(--dim); }
+  .lines { margin: 4px 0 0 14px; border-left: 1px solid var(--edge); padding: 2px 0 2px 10px; }
+  .oline {
+    display: flex; gap: 8px; align-items: baseline; padding: 0 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+  .oline:hover { background: #22262e; }
+  /* Fixed-width position columns so the titles form a single readable column
+     however far the numbering runs. */
+  .oline .pos { flex: none; width: 3ch; text-align: right; color: var(--dim); }
+  /* 2ch, not 1: ↕ is wider than a monospace cell and gets squashed into it. */
+  .oline .sig { flex: none; width: 2ch; text-align: center; font-weight: 700; }
+  .oline.same { color: var(--dim); }
+  .oline.same .sig { color: transparent; }
+  .oline.added   .sig, .oline.added   .pos.to   { color: var(--add-fg); }
+  .oline.removed .sig, .oline.removed .pos.from { color: var(--rm-fg); }
+  .oline.moved   .sig { color: var(--ch-fg); }
+  .oline.added .t { color: var(--add-fg); }
+  .oline.removed .t { color: var(--rm-fg); }
+
+  #notes { padding: 0 24px 12px; }
+  #notes[hidden] { display: none; }
+  #notes p {
+    margin: 0 0 4px; max-width: 90ch; color: var(--dim); font-size: 12px;
+    border-left: 2px solid var(--edge); padding-left: 9px;
+  }
   .empty, .hint { color: var(--dim); text-align: center; padding: 60px 20px; }
   footer {
     border-top: 1px solid var(--edge); padding: 14px 24px;
@@ -175,6 +216,7 @@
 </div>
 
 <section id="summary" hidden></section>
+<div id="notes" hidden></div>
 
 <div class="err" id="err" hidden></div>
 <main id="out"><p class="hint">Pick two snapshots to compare.</p></main>
@@ -292,6 +334,12 @@ function hay(node) {
   (node.changes || []).forEach(function (c) {
     s += ' ' + c.field + ' ' + fmt(c.from) + ' ' + fmt(c.to);
   });
+  // Track titles in a running order are text on the row like any other, so
+  // searching one finds the setlist it moved on -- collapsed or not.
+  if (node.order) {
+    s += ' running order';
+    node.order.entries.forEach(function (e) { s += ' ' + e.id; });
+  }
   return s.toLowerCase();
 }
 
@@ -351,6 +399,44 @@ function markup(text) {
   return safe;
 }
 
+/* Running order ------------------------------------------------------------
+ * One line per track: where it sat before, where it sits now, and which of the
+ * four things happened to it. Kept in the merged order of the two setlists, so
+ * reading straight down is reading the new running order with the dropped
+ * tracks still in place around it.
+ */
+var ORDER_SIGIL = { same: '=', moved: '↕', added: '+', removed: '−' };
+
+// Beyond this many lines the block starts collapsed. A short reshuffle is
+// worth reading immediately; a hundred-line one is worth being told about.
+var ORDER_FOLD = 12;
+
+function pos(n) { return n === null || n === undefined ? '·' : String(n + 1); }
+
+function renderOrder(order) {
+  var c = order.counts, bits = [];
+  if (c.added)   bits.push('<span class="a">+' + c.added + '</span>');
+  if (c.removed) bits.push('<span class="r">−' + c.removed + '</span>');
+  if (c.moved)   bits.push('<span class="c">↕' + c.moved + ' moved</span>');
+  if (c.same)    bits.push('<span class="of">' + c.same + ' in place</span>');
+
+  // Open while searching: a hit inside a folded block is a hit you cannot see.
+  var open = query || order.entries.length <= ORDER_FOLD ? ' open' : '';
+  var html = '<details class="order"' + open + '>' +
+    '<summary><span class="k">running order</span>' +
+    '<span class="of">' + c.a + ' → ' + c.b + ' tracks</span>' +
+    bits.join(' ') + '</summary><div class="lines">';
+
+  order.entries.forEach(function (e) {
+    html += '<div class="oline ' + e.kind + '">' +
+      '<span class="pos from">' + pos(e.a) + '</span>' +
+      '<span class="pos to">' + pos(e.b) + '</span>' +
+      '<span class="sig">' + ORDER_SIGIL[e.kind] + '</span>' +
+      '<span class="t">' + markup(e.id) + '</span></div>';
+  });
+  return html + '</div></details>';
+}
+
 function renderNode(node) {
   var html = '<div class="node ' + node.kind + (node.context ? ' context' : '') + '">';
   html += '<div class="row"><span class="sigil">' + SIGIL[node.kind] + '</span>';
@@ -368,6 +454,7 @@ function renderNode(node) {
     });
     html += '</div>';
   }
+  if (node.order) html += renderOrder(node.order);
   if (node.children && node.children.length) {
     html += '<div class="kids">' + node.children.map(renderNode).join('') + '</div>';
   }
@@ -450,6 +537,14 @@ function render() {
     '<span class="a"><b>' + c.added + '</b> added</span> &nbsp; ' +
     '<span class="r"><b>' + c.removed + '</b> removed</span> &nbsp; ' +
     '<span class="c"><b>' + c.changed + '</b> changed</span>';
+
+  // What the diff deliberately did not report. A quieter tally earned by
+  // withholding something has to say so, or it reads as "nothing happened".
+  var notes = document.getElementById('notes');
+  notes.innerHTML = (lastResult.notes || []).map(function (n) {
+    return '<p>' + esc(n) + '</p>';
+  }).join('');
+  notes.hidden = !(lastResult.notes && lastResult.notes.length);
 
   if (lastResult.nodes.length) renderSummary(lastResult);
   else document.getElementById('summary').hidden = true;
