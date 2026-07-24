@@ -129,10 +129,16 @@ says so outright when one field dominates.
 
 ## Media report
 
-The second tab is not a diff. It is a plain inventory of the **After snapshot
-alone** — every track in it and what each one is programmed with — and it
-ignores Before entirely. It answers "what is loaded, and which version", which
-the diff deliberately never says.
+The second tab is not a diff. It is a plain inventory of **one snapshot** —
+every track in it and what each one is programmed with. It answers "what is
+loaded, and which version", which the diff deliberately never says.
+
+Which snapshot: After when one is loaded, otherwise Before. Preferring After
+keeps the answer stable as files arrive rather than switching what the tab
+describes, and reading Before means a single capture is enough for both these
+tabs — you do not have to invent a second one to look at the show you have. The
+tally says `from Before` when that is what it read; After is the default and
+labelling it every time would be noise.
 
 One row per media file under each track: filename, version, layer, flags, and
 the layer's in and out times. Rows are in timeline order, so reading down a
@@ -155,8 +161,8 @@ report reads alphabetically and a track keeps its place between captures.
 
 Two other differences from the diff tab:
 
-- **It works with only After loaded.** The diff needs two snapshots; an
-  inventory needs one.
+- **It works with only one snapshot loaded**, in either slot. The diff needs
+  two; an inventory needs one.
 - **Tracks in the trash are badged**, since a track that has been deleted can
   still be programmed and still be played. See
   [Tracks in the trash](#tracks-in-the-trash).
@@ -258,10 +264,49 @@ Consequences worth knowing:
   through the director each capture, so a position that comes back as
   `60.0000000001` is the same position, not an edit.
 
+## The build and the option switches
+
+Every capture records the Designer it was read by, and the viewer puts it on the
+Before and After slots beside the project and the capture time:
+
+```
+moose_reviews_sphere_update · 2026-07-24T08:46:37-07:00 · r33.2.2_msg/main-branch, rev 253484
+```
+
+The slots sit above the tab bar, so the build stays visible on all three tabs.
+It qualifies every number below it — which is the whole reason it is a header
+line rather than a tab of its own.
+
+A capture also records the **advanced project settings**, the toggles disguise
+calls *option switches* (`useLegacySLCRegionTag`, `disableProxyMaker`, and ~120
+more). These change how the showfile behaves without changing a single field the
+rest of the capture records, so before v6 a diff could report "nothing changed"
+about a show that behaved differently. A flipped switch now shows as one line
+under `snapshot`, next to the build:
+
+```
+~ snapshot
+        d3 build   r33.2.2_msg/main-branch, rev 253484 → r34.0.1, rev 261002
+  useLegacySLCRegionTag   1 → 0
+```
+
+Two things the diff refuses to guess at:
+
+- **A switch the file never mentions is at its default**, not `0`. The file
+  holds only switches that have been persisted, so a name appearing for the
+  first time reads as `— → 1`, never `0 → 1`.
+- **An unread file is not an empty one.** If the plugin could not read the
+  switches, the whole scope is dropped from the diff and a note says so.
+  Reading it as "no switches set" would report all 125 as removed.
+
+Project and machine switches are kept apart — machine settings override project
+settings, so a merged view would answer "is this on" while hiding which layer
+set it. Machine ones are labelled `(machine)`.
+
 ## Schema
 
-Reads **v5 only**, and refuses anything else at load with a message naming the
-version. There is deliberately no back-compatibility, including with v4.
+Reads **v6 only**, and refuses anything else at load with a message naming the
+version. There is deliberately no back-compatibility, including with v5.
 
 A v1 log has a top-level `transport` with tracks inline rather than referenced,
 so identity matching cannot line up at all. v4 is subtler and worse: it lines up
@@ -273,7 +318,10 @@ deleted track from one dropped off a setlist. Rendering either is worse than
 refusing.
 
 v5 fixes both at the source: ids key on the track's resource path, and the
-census is captured explicitly.
+census is captured explicitly. v5 is nonetheless blind in the other direction:
+it records nothing about the software underneath, so a pair spanning a Designer
+upgrade or a flipped option switch reads as "the environment did not change"
+when the environment is the only thing that did. v6 adds `system`.
 
 Bump the check in `index.html` alongside `SCHEMA_VERSION` in the plugin's
 `snapshot.py`, and add any new comparable fields to the field lists at the top
@@ -415,10 +463,10 @@ automatic transport in it at all.
   way to show surrounding context the way `diff -U` does.
 - Only two snapshots at a time. A folder-wide timeline ("show me this project
   across the week") would need a different UI and is not built.
-- The media report and transport info read **After only**. Neither marks what
-  changed since Before — deliberately, since the tree already does comparison,
-  but "which versions moved since yesterday" is a fair thing to want and is not
-  answerable from the media tab today.
+- The media report and transport info read **one snapshot**. Neither marks what
+  changed since the other — deliberately, since the tree already does
+  comparison, but "which versions moved since yesterday" is a fair thing to want
+  and is not answerable from the media tab today.
 - `screenshot.png` is out of date: it predates the tabs and the v5 work.
 - Narrow viewports are unverified. The media report's fixed column widths assume
   a desktop-width window.

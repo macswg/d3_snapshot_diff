@@ -6,9 +6,10 @@ are easy to get wrong.
 
 ## What this is
 
-A browser viewer for `susan_summary` v5 JSON snapshots of a disguise d3
+A browser viewer for `susan_summary` v6 JSON snapshots of a disguise d3
 showfile. Three tabs: a semantic diff of two captures, a media inventory of one,
-and a per-transport view of one.
+and a per-transport view of one. Every tab carries a header line naming the
+Designer build each capture came from.
 
 No build step, no dependencies, no server. `index.html` opened from disk works
 identically to the hosted copy. That constraint is load-bearing — do not
@@ -63,6 +64,28 @@ Reversing any of these will look like a simplification and will be a regression.
 5. **Running order is a list, not a string.** `node.order` carries one entry per
    track from an LCS pass; a reshuffle reads as moves, not as N removals paired
    with N additions.
+6. **`options.values: null` is not `{}`**, and this is the census mistake
+   wearing a different hat. Null means the plugin could not read the option
+   switches; empty means none are set. Diffing null against a real map reports
+   all 125 switches as removed, so a null on either side drops the scope and
+   earns a note.
+7. **An option switch the file omits is at its default, not `0`.** The file
+   holds only persisted switches. Filling the other ~200 in with zeros invents
+   values the capture never claimed, and hides the release where a default
+   changes.
+8. **The build is a header line, not a section.** It qualifies everything below
+   it, so it belongs on the Before/After slots where all three tabs can see it.
+   Giving it a section would put the environment above the showfile edits, which
+   is backwards — you open these captures to see what changed in the show.
+9. **Media and transport info need one snapshot, not two.** They read After when
+   there is one and Before otherwise (`reportSource` in `index.html`), so a
+   single capture is enough to look at the show you have. Preferring After is
+   what keeps the answer stable as files arrive instead of switching which
+   capture the tab describes. The tally says `from Before` only when it read
+   Before — After is the documented default, and labelling it every time is
+   noise, while silence on the surprising case would let someone attribute the
+   numbers to the wrong capture. Gating these tabs on both slots, as the diff
+   must be, blanks a tab that already has everything it needs.
 
 ## Tests
 

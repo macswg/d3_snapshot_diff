@@ -611,5 +611,77 @@ check('a transport with no trackRefs returns an empty track list',
 check('an entirely empty snapshot does not throw',
       (function () { return diff.transportReport({}).totals.transports === 0; })());
 
+console.log('\nthe v6 system block');
+/* The build and the option switches. Mutations off the real corpus rather than
+ * hand-built captures: the switch map is 125 real entries, and the case that
+ * matters is what happens to the other 124 when one of them moves. */
+function withOptions(snap, scope, mutate) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  mutate(copy.system.options[scope]);
+  return copy;
+}
+var snapshotFields = function (nodes) { return changedFields(nodes, 'snapshot') || []; };
+
+check('a capture that read its switches reports them, and the corpus really has some',
+      A.system.options.project.values &&
+      Object.keys(A.system.options.project.values).length > 100,
+      Object.keys((A.system.options.project || {}).values || {}).length + ' switches');
+
+var flipped = withOptions(A, 'project', function (s) {
+  s.values.useLegacySLCRegionTag = s.values.useLegacySLCRegionTag === '1' ? '0' : '1';
+});
+var flipDiff = diff.diffSnapshots(A, flipped);
+check('a flipped switch is one line, not a re-report of every switch beside it',
+      snapshotFields(flipDiff.nodes).join(',') === 'useLegacySLCRegionTag',
+      JSON.stringify(snapshotFields(flipDiff.nodes)));
+check('and it earns no section of its own',
+      flipDiff.nodes.length === 1 && flipDiff.nodes[0].entity === 'snapshot',
+      findings(flipDiff.nodes).join(' | '));
+
+// The whole reason values is nullable. Reading null as {} would diff 125
+// switches against nothing and report every one of them as removed -- the
+// showfile-census mistake, wearing a different hat.
+var unread = withOptions(A, 'project', function (s) {
+  s.values = null; s.error = 'options.bin unreadable';
+});
+var unreadDiff = diff.diffSnapshots(A, unread);
+check('an unread switch file is declined, not read as no switches set',
+      snapshotFields(unreadDiff.nodes).length === 0,
+      JSON.stringify(snapshotFields(unreadDiff.nodes)).slice(0, 200));
+check('and the diff says out loud that it withheld them',
+      (unreadDiff.notes || []).filter(function (n) {
+        return /option switches/.test(n);
+      }).length === 1, JSON.stringify(unreadDiff.notes));
+check('the note quotes why the file was unreadable',
+      /options\.bin unreadable/.test((unreadDiff.notes || []).join(' ')),
+      JSON.stringify(unreadDiff.notes));
+
+// A switch the file never mentions is at its default. Filling it in with "0"
+// would invent a value the capture never claimed, and would hide the day a
+// Designer release changes what that default is.
+var added = withOptions(A, 'project', function (s) { s.values.aBrandNewSwitch = '1'; });
+var addedChange = (nodeAt(diff.diffSnapshots(A, added).nodes, 'snapshot').changes || [])[0];
+check('a switch that appears reads as absent-before, not as zero-before',
+      addedChange && addedChange.field === 'aBrandNewSwitch' &&
+      addedChange.from === undefined && addedChange.to === '1',
+      JSON.stringify(addedChange));
+
+// Machine settings override project settings, so they cannot share a namespace:
+// the same switch name can legitimately hold different values at each scope.
+var machined = withOptions(A, 'machine', function (s) { s.values.telnetConsolePort = '10002'; });
+check('a machine switch is labelled as one, so it cannot be mistaken for the project',
+      snapshotFields(diff.diffSnapshots(A, machined).nodes)
+        .join(',') === 'telnetConsolePort (machine)',
+      JSON.stringify(snapshotFields(diff.diffSnapshots(A, machined).nodes)));
+
+var upgraded = JSON.parse(JSON.stringify(A));
+upgraded.system.build.version = 'r34.0.0, rev 260000';
+check('a Designer upgrade is reported as one build line',
+      snapshotFields(diff.diffSnapshots(A, upgraded).nodes).join(',') === 'd3 build',
+      JSON.stringify(snapshotFields(diff.diffSnapshots(A, upgraded).nodes)));
+
+check('two captures off the same build and switches report neither',
+      snapshotFields(diff.diffSnapshots(A, JSON.parse(JSON.stringify(A))).nodes).length === 0);
+
 console.log('\n' + (failures ? failures + ' failing' : 'all passing'));
 process.exit(failures ? 1 : 0);

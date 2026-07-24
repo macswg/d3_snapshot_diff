@@ -44,6 +44,66 @@ function fmt(v) {
 /* Compare a field set across two entities -> [{field, from, to}].
  * An entry may be `key` or `[key, label]`; `field` carries the label, since it
  * is what the page prints, ranks and searches on. */
+/* The environment the showfile was read in: the Designer build, and the
+ * advanced project settings ("option switches").
+ *
+ * These flatten onto the snapshot node rather than earning a section. An
+ * upgrade or a flipped switch is one line of news; a section of its own would
+ * put the environment above the showfile edits below it, which is backwards --
+ * you look at these captures to see what changed in the show.
+ *
+ * Fields the plugin reports as changed but which say nothing on their own
+ * (branch, platform, tags) are left out: they move together with the version,
+ * so listing them turns one upgrade into six lines.
+ */
+var BUILD_FIELDS = [['version', 'd3 build'], ['releaseType', 'licence'],
+                    ['customRelease', 'custom release'],
+                    ['osImage', 'OS image'],
+                    ['renderStream', 'RenderStream']];
+
+function buildChanges(a, b) {
+  var ba = (a.system && a.system.build) || {},
+      bb = (b.system && b.system.build) || {};
+  return fieldChanges(ba, bb, BUILD_FIELDS);
+}
+
+/* Option switch changes for one scope, plus a note when the pair cannot answer.
+ *
+ * Two traps here, both of which produce a confidently wrong diff:
+ *
+ * `values: null` means the plugin could not read the file, NOT that no switches
+ * are set. Diffing null against a real map would report all 125 switches as
+ * removed -- the same mistake `trackIds: null` exists to prevent. So a null on
+ * either side drops the whole scope and says so out loud.
+ *
+ * A switch missing from the file is at its *default*, which is not the same as
+ * a value of "0" -- the file only holds what has been persisted. Missing stays
+ * undefined so it renders as '—', rather than being filled in with a zero the
+ * capture never claimed.
+ */
+function optionChanges(a, b, scope) {
+  var sa = (a.system && a.system.options && a.system.options[scope]) || {},
+      sb = (b.system && b.system.options && b.system.options[scope]) || {};
+  if (!sa.values || !sb.values) {
+    var which = !sa.values ? (!sb.values ? 'Neither' : 'The Before') : 'The After';
+    return { changes: [], note:
+      which + ' capture could not read the ' + scope + ' option switches' +
+      ((sa.error || sb.error) ? ' (' + (sa.error || sb.error) + ')' : '') +
+      ', so a switch that was flipped between these two captures cannot be ' +
+      'reported. An unread file is not an empty one.' };
+  }
+
+  var names = [], seen = {}, k;
+  for (k in sa.values) if (!seen[k]) { seen[k] = 1; names.push(k); }
+  for (k in sb.values) if (!seen[k]) { seen[k] = 1; names.push(k); }
+  names.sort();
+
+  var label = scope === 'machine' ? ' (machine)' : '';
+  return { changes: fieldChanges(sa.values, sb.values, names.map(function (n) {
+    return [n, n + label];
+  })), note: null };
+}
+
 function fieldChanges(a, b, fields) {
   var out = [];
   for (var i = 0; i < fields.length; i++) {
@@ -319,6 +379,12 @@ function diffSnapshots(snapA, snapB) {
   var nodes = [];
 
   var top = fieldChanges(snapA, snapB, SNAPSHOT_FIELDS);
+
+  // The build and the switches ride on the snapshot node -- see buildChanges.
+  var project = optionChanges(snapA, snapB, 'project');
+  var machine = optionChanges(snapA, snapB, 'machine');
+  top = top.concat(buildChanges(snapA, snapB), project.changes, machine.changes);
+
   if (top.length) nodes.push({ kind: 'changed', entity: 'snapshot', label: 'snapshot', changes: top });
 
   var tracks = diffTracks(snapA, snapB);
@@ -329,6 +395,8 @@ function diffSnapshots(snapA, snapB) {
   // than a noisy one: it reads as "nothing happened to the tracks" when what
   // actually happened is that the capture cannot tell.
   var notes = [];
+  if (project.note) notes.push(project.note);
+  if (machine.note) notes.push(machine.note);
   function noCensus(which, snap) {
     var why = snap.showfile && snap.showfile.error
       ? 'could not read the automatic setlist (' + snap.showfile.error + ')'

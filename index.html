@@ -76,6 +76,7 @@
   #bar.on { display: flex; }
   .tally b { font-weight: 600; }
   .tally .a { color: var(--add-fg); } .tally .r { color: var(--rm-fg); } .tally .c { color: var(--ch-fg); }
+  .tally .of { color: var(--dim); }
   #q {
     margin-left: auto; min-width: 260px; padding: 6px 10px;
     border: 1px solid var(--edge); border-radius: 6px;
@@ -378,25 +379,42 @@ function load(file, slot, drop) {
   reader.onload = function () {
     try {
       var data = JSON.parse(reader.result);
-      // v5 only, deliberately. A v1 log has a top-level `transport` with tracks
+      // v6 only, deliberately. A v1 log has a top-level `transport` with tracks
       // inline rather than referenced, so identity matching cannot line up at
       // all. v4 lines up but lies quietly: its track ids are display names
       // disambiguated in capture order, so the same show can hand out different
       // ids on two runs and report a whole track removed and another added. It
       // also has no census of the showfile, so it cannot tell a deleted track
-      // from one dropped off a setlist. Rendering either is worse than refusing.
-      if (data.schemaVersion !== 5) {
+      // from one dropped off a setlist. v5 records nothing about the software
+      // underneath, so a pair spanning a Designer upgrade or a flipped option
+      // switch reads as "the environment did not change" when the environment
+      // is the only thing that did. Rendering any of them is worse than
+      // refusing.
+      if (data.schemaVersion !== 6) {
         throw new Error('schema v' + data.schemaVersion + ' is not comparable — ' +
-                        'this viewer reads v5. Re-capture with the current plugin.');
+                        'this viewer reads v6. Re-capture with the current plugin.');
       }
       snaps[slot] = data;
       drop.classList.add('filled');
+      // The build belongs on the slot itself, not in a tab: it qualifies every
+      // number the capture reports, so it has to stay visible whichever tab is
+      // open. The drop zones sit above the tab bar, which is what makes this
+      // one line do the job a fourth tab would have.
       drop.innerHTML = esc(file.name) + '<span class="stamp">' +
-        esc(data.project || '?') + ' · ' + esc(data.capturedAt || '') + '</span>';
+        esc(data.project || '?') + ' · ' + esc(data.capturedAt || '') +
+        ' · ' + esc(buildOf(data)) + '</span>';
       render();
     } catch (e) { fail(file.name + ': ' + e.message); }
   };
   reader.readAsText(file);
+}
+
+/* The Designer build, short enough for a header line. Falls back to '—' rather
+ * than to a guess: a capture whose ReleaseVersion read failed knows less than
+ * one that never had the field, and neither should look like a version. */
+function buildOf(snap) {
+  var b = snap.system && snap.system.build;
+  return (b && b.version) || '—';
 }
 
 function esc(s) {
@@ -677,7 +695,8 @@ function paintMedia() {
   count.textContent = '';
 
   if (!lastReport) {
-    out.innerHTML = '<p class="hint">Load an After snapshot to list its media.</p>';
+    out.innerHTML = '<p class="hint">Load a snapshot to list its media. ' +
+                    'One is enough — this tab describes a single capture.</p>';
     return;
   }
   if (!lastReport.tracks.length) {
@@ -819,7 +838,9 @@ function paintTransports() {
   count.textContent = '';
 
   if (!lastTransports) {
-    out.innerHTML = '<p class="hint">Load an After snapshot to see what each transport is loaded with.</p>';
+    out.innerHTML = '<p class="hint">Load a snapshot to see what each transport ' +
+                    'is loaded with. One is enough — this tab describes a ' +
+                    'single capture.</p>';
     return;
   }
   if (!lastTransports.transports.length) {
@@ -902,15 +923,24 @@ function renderSummary(result) {
 // searching re-renders from the held result rather than re-running the engine.
 // Same for the report, which walks every layer of every track.
 var lastResult = null, lastReport = null, lastTransports = null;
+// Which slot the media and transport tabs are describing, 'a' or 'b'.
+var reportSource = null;
 var tab = 'changes', changeTally = '', hasNotes = false;
 
 function render() {
   document.getElementById('err').hidden = true;
 
-  // Built from After alone. Gating this on both slots -- as the diff must be --
+  // Built from one snapshot. Gating this on both slots -- as the diff must be --
   // would blank a tab that already has everything it needs.
-  lastReport = snaps.b ? mediaReport(snaps.b) : null;
-  lastTransports = snaps.b ? transportReport(snaps.b) : null;
+  //
+  // After when there is one, otherwise Before: these tabs describe a single
+  // capture, so which slot it arrived in is an accident of how the user
+  // dropped it. Preferring After keeps the answer stable once both are
+  // loaded, rather than switching what the tab describes as files arrive.
+  reportSource = snaps.b ? 'b' : (snaps.a ? 'a' : null);
+  var only = reportSource ? snaps[reportSource] : null;
+  lastReport = only ? mediaReport(only) : null;
+  lastTransports = only ? transportReport(only) : null;
 
   if (snaps.a && snaps.b) {
     lastResult = diffSnapshots(snaps.a, snaps.b);
@@ -963,11 +993,16 @@ function setTab(name) {
 
   var m = lastReport ? lastReport.totals : null;
   var t = lastTransports ? lastTransports.totals : null;
+  // Name the slot only when it is Before. After is the documented default, so
+  // labelling it every time is noise; reading Before is the surprising case and
+  // silence there would let someone attribute the numbers to the wrong capture.
+  var from = reportSource === 'a' ? ' &nbsp; <span class="of">from Before</span>' : '';
   document.getElementById('tally').innerHTML =
     changes ? changeTally :
     tab === 'media' ? (m
-      ? '<b>' + m.tracks + '</b> tracks &nbsp; <b>' + m.media + '</b> media' : '') :
-    (t ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks + '</b> tracks' : '');
+      ? '<b>' + m.tracks + '</b> tracks &nbsp; <b>' + m.media + '</b> media' + from : '') :
+    (t ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks +
+         '</b> tracks' + from : '');
   paint();
 }
 
