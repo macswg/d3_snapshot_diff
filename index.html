@@ -36,6 +36,8 @@
   .how b { color: var(--fg); font-weight: 600; }
   .how code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
   .how .a { color: var(--add-fg); } .how .r { color: var(--rm-fg); } .how .c { color: var(--ch-fg); }
+  .how a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+  .how a:hover { color: var(--ch-fg); }
   .slot { display: flex; flex-direction: column; gap: 5px; }
   /* flex-basis 100% consumes the row, so the folder slot always drops to its
      own line rather than trailing the title when the window is wide. */
@@ -288,7 +290,10 @@
   <p class="how">
     Choose the folder your snapshots are saved in and the two most recent are
     compared automatically — or set <b>Before</b> and <b>After</b> yourself by
-    clicking either box or dropping a <code>.json</code> snapshot on it.
+    clicking either box or dropping a <code>.json</code> snapshot on it. The
+    captures are written by the
+    <a href="https://github.com/macswg/d3plg_susan_summary" target="_blank"
+       rel="noopener">Susan&nbsp;Summary</a> disguise plugin.
     Everything below is what changed from Before to After:
     <span class="a">+ added</span>, <span class="r">− removed</span>,
     <span class="c">~ changed</span>. Files are read in your browser and never
@@ -314,7 +319,7 @@
   <button type="button" class="tab on" data-tab="changes">Changes</button>
   <button type="button" class="tab" data-tab="media">Media report</button>
   <button type="button" class="tab" data-tab="transports">Transport info</button>
-  <button type="button" class="tab" data-tab="system">System</button>
+  <button type="button" class="tab" data-tab="system">System info</button>
 </nav>
 
 <div id="bar">
