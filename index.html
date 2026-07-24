@@ -56,6 +56,19 @@
   }
   #pickDir:hover { color: var(--fg); border-color: var(--dim); }
 
+  /* Tabs. One search box serves both, so the strip sits above the bar rather
+     than inside it — the query survives a tab switch, it does not belong to a
+     tab. */
+  #tabs { display: none; padding: 0 24px; border-bottom: 1px solid var(--edge); }
+  #tabs.on { display: flex; }
+  .tab {
+    background: none; border: 0; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; padding: 9px 12px; cursor: pointer;
+    color: var(--dim); font: inherit; font-size: 13px;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.on { color: var(--fg); border-bottom-color: var(--ch-fg); }
+
   #bar {
     padding: 10px 24px; border-bottom: 1px solid var(--edge);
     display: none; gap: 18px; align-items: center; font-size: 13px;
@@ -162,6 +175,66 @@
   .oline.added .t { color: var(--add-fg); }
   .oline.removed .t { color: var(--rm-fg); }
 
+  /* Media report ------------------------------------------------------------
+     Tracks reuse details.order: a setlist runs past a hundred entries here too,
+     and a second collapsible look for the same gesture would just be a second
+     thing to learn. Only the geometry is overridden. */
+  .tp { margin: 0 0 22px; }
+  .tphead {
+    display: flex; gap: 10px; align-items: baseline; padding: 0 0 5px;
+    border-bottom: 1px solid var(--edge); margin-bottom: 5px;
+  }
+  .tphead .tpname { font-weight: 600; }
+  .tphead .of { color: var(--dim); font-size: 12px; }
+  .tphead .grow { margin-left: auto; white-space: nowrap; }
+  .tpx {
+    background: none; border: 0; padding: 0; cursor: pointer;
+    color: var(--dim); font: inherit; font-size: 12px; text-decoration: underline;
+  }
+  .tpx:hover { color: var(--fg); }
+  .mtrack { margin: 0; }
+  /* width:auto, unlike .order — the summary has to span the panel for the
+     right-hand meta to sit in a column instead of trailing each title. */
+  .mtrack > summary { width: auto; padding: 2px 0; }
+  .mtrack > summary .tname { color: var(--fg); }
+  /* Shown to place a media match, not because the track itself matched. */
+  .mtrack.context > summary .tname { color: var(--dim); }
+  .mtrack > summary .grow { margin-left: auto; white-space: nowrap; }
+  /* Tighter than the tree's .lines: every pixel of indent here comes straight
+     out of the layer column, which is the column still short of room. */
+  .mtrack > .lines { margin-left: 4px; padding-left: 8px; }
+  .tnum {
+    flex: none; width: 4ch; text-align: right; color: var(--dim);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .mtrack.gone {
+    display: flex; gap: 8px; align-items: baseline; padding: 2px 0;
+    font-size: 12px; color: var(--dim);
+  }
+  .mtrack.gone .grow { margin-left: auto; }
+  .mtrack.gone .r { color: var(--rm-fg); }
+  /* Grid, not flex: the fixed columns resolve identically in every track, so
+     the version column lines up down the whole report and not merely within
+     one track. Each cell clips rather than wraps — 1730 rows are only
+     scannable while every row is exactly one line high.
+     The filename column is a fixed 44ch (the 92nd percentile of a real
+     capture) rather than 1fr: given the slack, 1fr stretched it and pushed the
+     version a hand's width away from the name it belongs to. Everything left
+     goes to the layer — it is how the row is found again in Designer, and a
+     column of identical `[VID] 130_ligh…` stubs tells nobody anything. */
+  .mitem {
+    display: grid; gap: 8px; padding: 0 4px;
+    grid-template-columns: minmax(0, 44ch) 8ch minmax(0, 1fr) 9ch 11ch;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+  .mitem > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mitem:hover { background: #22262e; }
+  .mitem .mv { color: var(--ch-fg); }
+  .mitem .ml, .mitem .mk, .mitem .mt { color: var(--dim); }
+  /* A clip on a layer with rendering off is still loaded, so it is listed —
+     dimmed and labelled rather than dropped. */
+  .mitem.off .mn { color: var(--dim); }
+
   #notes { padding: 0 24px 12px; }
   #notes[hidden] { display: none; }
   #notes p {
@@ -208,6 +281,11 @@
   </div>
 </header>
 
+<nav id="tabs">
+  <button type="button" class="tab on" data-tab="changes">Changes</button>
+  <button type="button" class="tab" data-tab="media">Media report</button>
+</nav>
+
 <div id="bar">
   <span class="tally" id="tally"></span>
   <input type="search" id="q" placeholder="Search changes… (name, field, value)"
@@ -219,7 +297,10 @@
 <div id="notes" hidden></div>
 
 <div class="err" id="err" hidden></div>
-<main id="out"><p class="hint">Pick two snapshots to compare.</p></main>
+<main>
+  <div id="out"><p class="hint">Pick two snapshots to compare.</p></div>
+  <div id="media" hidden></div>
+</main>
 
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
@@ -349,12 +430,14 @@ function hay(node) {
  * node in isolation would find nothing, since no cue's own text contains the
  * track name, and that is precisely how someone types a search.
  */
-function hits(node, path) {
+function hitsText(h) {
   if (!query) return false;
-  var h = path + ' ' + hay(node), terms = query.split(/\s+/);
+  var terms = query.split(/\s+/);
   for (var i = 0; i < terms.length; i++) if (h.indexOf(terms[i]) === -1) return false;
   return true;
 }
+
+function hits(node, path) { return hitsText(path + ' ' + hay(node)); }
 
 /* Keep a node when it matches (with its whole subtree, since a track you
  * searched for is worth seeing entire) or when a descendant does (with only
@@ -461,6 +544,157 @@ function renderNode(node) {
   return html + '</div>';
 }
 
+/* Media report -------------------------------------------------------------
+ * An inventory of the After snapshot alone: every media file a setlist will
+ * load, in running order then timeline order. Nothing here is a comparison, so
+ * Before is not consulted and the tab works with After on its own.
+ */
+
+// Not esc(): this feeds the search haystack, not the page, and escaping it
+// would put &amp; in the text a query for & has to match.
+function plain(v) { return v === null || v === undefined ? '' : String(v); }
+
+function clock(s) {
+  if (s === null || s === undefined) return '·';
+  var t = Math.max(0, Math.round(s)), r = t % 60;
+  return Math.floor(t / 60) + ':' + (r < 10 ? '0' : '') + r;
+}
+
+function layerOf(it) { return (it.group || []).concat([plain(it.layer)]).join(' / '); }
+
+function trackHay(t) { return (plain(t.id) + ' ' + plain(t.name)).toLowerCase(); }
+
+function itemHay(it) {
+  return (plain(it.name) + ' ' + plain(it.version) + ' ' + plain(it.path) + ' ' +
+          layerOf(it) + ' ' + plain(it.type)).toLowerCase();
+}
+
+function renderItem(it) {
+  // Flags read as words rather than as colour alone: a dimmed row with no
+  // caption is a question, and the answer is two characters of text.
+  var flags = [];
+  if (it.hasAudio) flags.push('audio');
+  if (it.renderEnable === false) flags.push('off');
+  var span = it.tStart === null ? '·' : clock(it.tStart) + '–' + clock(it.tEnd);
+  var lay = layerOf(it);
+
+  // Path and type live in the title. Both are worth having and neither is worth
+  // a column: the path is long, and the type is VariableVideoModule on nearly
+  // every row in the report, so printed it costs 20 characters to say nothing.
+  // The flags do not go with it -- a layer with rendering off is a thing to
+  // spot while scanning, not a thing to go hunting for.
+  return '<div class="mitem' + (it.renderEnable === false ? ' off' : '') + '">' +
+    '<span class="mn" title="' + esc(plain(it.path) + '  ' + plain(it.type)) + '">' +
+    markup(it.name) + '</span>' +
+    '<span class="mv">' + markup(it.version) + '</span>' +
+    '<span class="ml" title="' + esc(lay) + '">' + markup(lay) + '</span>' +
+    '<span class="mk">' + esc(flags.join(' · ')) + '</span>' +
+    '<span class="mt">' + esc(span) + '</span></div>';
+}
+
+function renderTrack(w) {
+  var t = w.track;
+  if (t.missing) {
+    return '<div class="mtrack gone"><span class="tnum">' + w.pos + '</span>' +
+      '<span>' + markup(t.name) + '</span>' +
+      '<span class="grow r">on the setlist, not in this capture</span></div>';
+  }
+
+  var meta = [];
+  if (t.lengthInSec !== null) meta.push(clock(t.lengthInSec));
+  if (t.bpm !== null) meta.push(t.bpm + ' bpm');
+  meta.push(w.items.length + ' media');
+
+  var html = '<details class="order mtrack' + (w.context ? ' context' : '') + '"' +
+    (w.open ? ' open' : '') + '>' +
+    '<summary><span class="tnum">' + w.pos + '</span>' +
+    '<span class="tname">' + markup(t.name) + '</span>' +
+    '<span class="grow of">' + esc(meta.join(' · ')) + '</span></summary>' +
+    '<div class="lines">';
+  html += w.items.length
+    ? w.items.map(renderItem).join('')
+    : '<div class="note">No media on this track.</div>';
+  return html + '</div></details>';
+}
+
+function renderTransport(tp, list) {
+  var html = '<section class="tp"><div class="tphead">' +
+    '<span class="tpname">' + markup(tp.name) + '</span>' +
+    '<span class="of">' + markup(tp.setlist) + '</span>' +
+    '<button type="button" class="tpx">expand all</button>' +
+    '<span class="grow of">' + plural(tp.trackCount, 'track') + ' · ' +
+    tp.mediaCount + ' media</span></div>';
+  html += list.length
+    ? list.map(renderTrack).join('')
+    : '<div class="note">No tracks on this setlist.</div>';
+  return html + '</section>';
+}
+
+/* Collapsed by default: a transport on the automatic setlist is 127 tracks and
+ * 1700-odd rows, and opening it on load buries the other three transports under
+ * a screen-height of scrollbar. The summary line carries the count, so the
+ * closed state still answers "how much does this song load".
+ */
+function wrapAll(tp) {
+  return tp.tracks.map(function (t, i) {
+    return { track: t, items: t.items, pos: i + 1, context: false, open: false };
+  });
+}
+
+/* A track whose own name matches shows everything under it; a track kept only
+ * because a media row matched shows just those rows and dims its name, the same
+ * bargain the tree makes with .node.context. Matches open the block, since a hit
+ * you cannot see is not a hit. */
+function filterTransport(tp) {
+  var base = (plain(tp.name) + ' ' + plain(tp.setlist) + ' ').toLowerCase();
+  var out = [], n = 0;
+  tp.tracks.forEach(function (t, i) {
+    var path = base + trackHay(t);
+    if (hitsText(path)) {
+      n++;
+      t.items.forEach(function (it) { if (hitsText(path + ' ' + itemHay(it))) n++; });
+      out.push({ track: t, items: t.items, pos: i + 1, context: false, open: true });
+      return;
+    }
+    var kept = t.items.filter(function (it) { return hitsText(path + ' ' + itemHay(it)); });
+    if (kept.length) {
+      n += kept.length;
+      out.push({ track: t, items: kept, pos: i + 1, context: true, open: true });
+    }
+  });
+  return { list: out, hits: n };
+}
+
+function paintMedia() {
+  var out = document.getElementById('media');
+  var count = document.getElementById('matches');
+  count.textContent = '';
+
+  if (!lastReport) {
+    out.innerHTML = '<p class="hint">Load an After snapshot to list its media.</p>';
+    return;
+  }
+  if (!lastReport.transports.length) {
+    out.innerHTML = '<p class="empty">This snapshot has no transports, so nothing loads media.</p>';
+    return;
+  }
+  if (!query) {
+    out.innerHTML = lastReport.transports.map(function (tp) {
+      return renderTransport(tp, wrapAll(tp));
+    }).join('');
+    return;
+  }
+
+  var html = '', n = 0;
+  lastReport.transports.forEach(function (tp) {
+    var f = filterTransport(tp);
+    n += f.hits;
+    if (f.list.length) html += renderTransport(tp, f.list);
+  });
+  count.textContent = n ? plural(n, 'match') : 'no matches';
+  out.innerHTML = n ? html : '<p class="empty">Nothing matches “' + esc(query) + '”.</p>';
+}
+
 /* Summary ----------------------------------------------------------------- */
 
 // "match" needs -es, not -s. Cheap rule, but it covers every word this page
@@ -523,41 +757,78 @@ function renderSummary(result) {
 
 // Diffing a big pair is not free, so it happens once per snapshot change and
 // searching re-renders from the held result rather than re-running the engine.
-var lastResult = null;
+// Same for the report, which walks every layer of every track.
+var lastResult = null, lastReport = null;
+var tab = 'changes', changeTally = '', hasNotes = false;
 
 function render() {
-  if (!snaps.a || !snaps.b) return;
   document.getElementById('err').hidden = true;
 
-  lastResult = diffSnapshots(snaps.a, snaps.b);
-  var c = lastResult.counts;
+  // Built from After alone. Gating this on both slots -- as the diff must be --
+  // would blank a tab that already has everything it needs.
+  lastReport = snaps.b ? mediaReport(snaps.b) : null;
 
+  if (snaps.a && snaps.b) {
+    lastResult = diffSnapshots(snaps.a, snaps.b);
+    var c = lastResult.counts;
+    changeTally =
+      '<span class="a"><b>' + c.added + '</b> added</span> &nbsp; ' +
+      '<span class="r"><b>' + c.removed + '</b> removed</span> &nbsp; ' +
+      '<span class="c"><b>' + c.changed + '</b> changed</span>';
+
+    // What the diff deliberately did not report. A quieter tally earned by
+    // withholding something has to say so, or it reads as "nothing happened".
+    hasNotes = !!(lastResult.notes && lastResult.notes.length);
+    document.getElementById('notes').innerHTML = (lastResult.notes || []).map(function (n) {
+      return '<p>' + esc(n) + '</p>';
+    }).join('');
+
+    if (lastResult.nodes.length) renderSummary(lastResult);
+  }
+
+  document.getElementById('tabs').classList.add('on');
   document.getElementById('bar').classList.add('on');
-  document.getElementById('tally').innerHTML =
-    '<span class="a"><b>' + c.added + '</b> added</span> &nbsp; ' +
-    '<span class="r"><b>' + c.removed + '</b> removed</span> &nbsp; ' +
-    '<span class="c"><b>' + c.changed + '</b> changed</span>';
+  setTab(tab);
+}
 
-  // What the diff deliberately did not report. A quieter tally earned by
-  // withholding something has to say so, or it reads as "nothing happened".
-  var notes = document.getElementById('notes');
-  notes.innerHTML = (lastResult.notes || []).map(function (n) {
-    return '<p>' + esc(n) + '</p>';
-  }).join('');
-  notes.hidden = !(lastResult.notes && lastResult.notes.length);
+/* Only one panel is ever visible. The bar and the search box are shared: the
+ * query is about the snapshots, not about the tab, so switching re-filters the
+ * other panel with the same terms instead of leaving it stale. */
+function setTab(name) {
+  tab = name;
+  var changes = tab === 'changes';
+  var btns = document.querySelectorAll('#tabs .tab');
+  for (var i = 0; i < btns.length; i++) {
+    if (btns[i].getAttribute('data-tab') === tab) btns[i].classList.add('on');
+    else btns[i].classList.remove('on');
+  }
+  document.getElementById('out').hidden = !changes;
+  document.getElementById('media').hidden = changes;
+  // The summary and the notes describe the diff, so they belong to its tab.
+  document.getElementById('summary').hidden =
+    !(changes && lastResult && lastResult.nodes.length);
+  document.getElementById('notes').hidden = !(changes && hasNotes);
+  document.getElementById('q').placeholder = changes
+    ? 'Search changes… (name, field, value)'
+    : 'Search media… (track, file, version)';
 
-  if (lastResult.nodes.length) renderSummary(lastResult);
-  else document.getElementById('summary').hidden = true;
-
+  var t = lastReport ? lastReport.totals : null;
+  document.getElementById('tally').innerHTML = changes ? changeTally : (t
+    ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks +
+      '</b> tracks &nbsp; <b>' + t.media + '</b> media'
+    : '');
   paint();
 }
 
 /* Draw the tree for the current query. Separate from render() so typing does
  * not re-diff. */
 function paint() {
+  if (tab === 'media') { paintMedia(); return; }
+
   var out = document.getElementById('out');
   var count = document.getElementById('matches');
-  if (!lastResult) return;
+  // Nothing to draw yet: the hint already in #out is the empty state.
+  if (!lastResult) { count.textContent = ''; return; }
 
   if (!lastResult.nodes.length) {
     count.textContent = '';
@@ -580,6 +851,23 @@ function paint() {
 
 wire('dropA', 'fileA', 'a');
 wire('dropB', 'fileB', 'b');
+
+(function () {
+  document.getElementById('tabs').addEventListener('click', function (e) {
+    var t = e.target.getAttribute && e.target.getAttribute('data-tab');
+    if (t) setTab(t);
+  });
+
+  // Delegated, because the report is redrawn on every keystroke and a listener
+  // bound per section would be re-bound with it.
+  document.getElementById('media').addEventListener('click', function (e) {
+    if (!e.target.classList || !e.target.classList.contains('tpx')) return;
+    var rows = e.target.parentNode.parentNode.querySelectorAll('details.mtrack');
+    var open = e.target.textContent === 'expand all';
+    for (var i = 0; i < rows.length; i++) rows[i].open = open;
+    e.target.textContent = open ? 'collapse all' : 'expand all';
+  });
+})();
 
 (function () {
   var box = document.getElementById('q');

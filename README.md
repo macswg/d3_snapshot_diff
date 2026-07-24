@@ -101,16 +101,58 @@ version`, that is a re-link or re-scan, not editorial work. The headline
 add/remove/change counts cannot tell those apart; the field ranking can, and it
 says so outright when one field dominates.
 
-### Search
+## Media report
 
-Filters the tree as you type, over everything you can read on a row — labels,
-field names, and both values. Space-separated terms are ANDed, and each term
-may match anywhere on the path from the top-level node down, so `whiskey cue`
-finds the cues inside `290_whiskey_whiskey` even though no cue's own text
-contains "whiskey".
+The second tab is not a diff. It is a plain inventory of the **After snapshot
+alone** — what this show loads, setlist by setlist — and it ignores Before
+entirely. It answers "what plays, and which version", which the diff
+deliberately never says.
 
-A row kept only to place a match further down is dimmed: it is context, not a
-hit. The count is of actual hits. Escape clears.
+A section per transport, tracks in that setlist's running order, and under each
+track one row per media file: filename, version, layer, flags, and the layer's
+in and out times. Rows are in timeline order, so reading down a track is
+reading the track. Tracks start collapsed — a 126-track setlist would otherwise
+open some 1,700 rows — and the closed line still gives length, bpm and media
+count, which is usually the question. `expand all` per transport when it isn't.
+
+The version column is fixed-width and aligned across every track in the report,
+because running an eye down it is the point.
+
+Some deliberate differences from the diff tab:
+
+- **A track on two setlists is listed under both**, and its media counted
+  twice. The diff does the opposite for good reason — one edit reported twice
+  is a wrong answer — but here the question is "what does this setlist play",
+  and a song in two shows is loaded for both.
+- **Every transport is included**, `automatic` among them. With an automatic
+  transport loaded that section is the whole showfile, which is a report worth
+  having.
+- **It works with only After loaded.** The diff needs two snapshots; an
+  inventory needs one.
+- A setlist entry with no track in the capture renders as a marked stub rather
+  than being dropped.
+
+`mediaReport(snap)` builds it, is DOM-free like the rest of `diff.js`, and is
+covered by the self-test.
+
+## Search
+
+One box, serving whichever tab is showing; the query survives a switch between
+them.
+
+On the tree it filters as you type, over everything you can read on a row —
+labels, field names, and both values. Space-separated terms are ANDed, and each
+term may match anywhere on the path from the top-level node down, so `whiskey
+cue` finds the cues inside `290_whiskey_whiskey` even though no cue's own text
+contains "whiskey". Track titles inside a running order are searchable too,
+folded or not.
+
+On the media report it matches track names, filenames, versions and layer names.
+A track that matches shows all its media; a track kept only because one of its
+media matched is dimmed as context, and filtered tracks open themselves.
+
+In both, a row kept only to place a match further down is dimmed: it is context,
+not a hit. The count is of actual hits. Escape clears.
 
 ## Logs on a shared drive
 
@@ -179,7 +221,7 @@ of `diff.js`.
 ## Layout
 
 ```
-index.html        UI, rendering and file loading. All the CSS.
+index.html        UI, both tabs, rendering and file loading. All the CSS.
 diff.js           The engine. No DOM access — usable from node.
 tools/selftest.js Regression checks against real captures.
 tools/deploy.sh   Version bump, commit, push, wait for Pages.
@@ -217,7 +259,23 @@ tally earned by withholding has to say so, or it reads as "nothing happened".
 It is carried on the node rather than parsed back out of the label, so the
 summary never has to guess what a row is.
 
-`summarize(result)` rolls that tree up for the panel on the page, and is
+`mediaReport(snap)` builds the media tab from a single snapshot, and is likewise
+DOM-free:
+
+```js
+{
+  transports: [ { name, setlist, trackCount, mediaCount, tracks: [
+    { id, name, lengthInSec, bpm, missing?, items: [
+      { layer, group, type, renderEnable, tStart, tEnd,
+        name, path, version, hasAudio, regionSet } ] } ] } ],
+  totals: { transports, tracks, media }
+}
+```
+
+`items` is one row per media, not per layer, sorted by `tStart` with nulls last.
+`missing` marks a `trackRefs` entry with no track in the capture.
+
+`summarize(result)` rolls the diff tree up for the panel on the page, and is
 likewise DOM-free:
 
 ```js

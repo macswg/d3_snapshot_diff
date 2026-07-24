@@ -408,7 +408,96 @@ function summarize(result) {
   return { entities: entities, fields: fields, hotspots: hotspots };
 }
 
+/* One capture's media, read as a setlist at a time: what is loaded, in the
+ * order it plays. Nothing here is a comparison -- it answers "what is in this
+ * show", which the diff deliberately never says.
+ *
+ * Returns {transports:[{name, setlist, trackCount, mediaCount, tracks:[…]}],
+ *          totals:{transports, tracks, media}}.
+ *
+ * Every transport is included whatever its setlist, `automatic` among them: the
+ * automatic setlist is the only census of the showfile, so dropping it -- the
+ * obvious tidy, since its tracks all recur elsewhere -- would leave the one
+ * complete inventory out of the inventory.
+ */
+function mediaReport(snap) {
+  snap = snap || {};
+
+  // Index the tracks once. A linear scan per trackRef is quadratic, and this
+  // runs over 127 tracks against 1852 layers. First id wins: ids are unique in
+  // practice (the plugin uniquifies with a `#2` suffix) but a capture that
+  // repeats one must still report rather than throw.
+  var byId = Object.create(null);
+  (snap.tracks || []).forEach(function (t) {
+    var k = String(t.id);
+    if (!(k in byId)) byId[k] = t;
+  });
+
+  // tStart is null on a layer the director could not place. Sorting those as 0
+  // would file them ahead of everything on the timeline, claiming a position
+  // the capture does not have; they go last. Layer then media name break ties
+  // so two clips starting on the same frame don't swap between runs.
+  function byTime(x, y) {
+    if (x.tStart === null && y.tStart !== null) return 1;
+    if (y.tStart === null && x.tStart !== null) return -1;
+    if (x.tStart !== null && x.tStart !== y.tStart) return x.tStart - y.tStart;
+    return String(x.layer).localeCompare(String(y.layer)) ||
+           String(x.name).localeCompare(String(y.name));
+  }
+
+  function nul(v) { return v === undefined ? null : v; }
+
+  function itemsOf(track) {
+    var out = [];
+    (track.layers || []).forEach(function (l) {
+      // One row per media, not per layer: a layer holding five clips is five
+      // things loaded, and a layer holding none is nothing to load and so
+      // contributes no row at all.
+      (l.media || []).forEach(function (md) {
+        out.push({
+          layer: l.name, group: l.groupPath || [], type: l.type,
+          renderEnable: l.renderEnable,
+          tStart: nul(l.tStart), tEnd: nul(l.tEnd),
+          name: md.name, path: md.path, version: md.version,
+          hasAudio: md.hasAudio, regionSet: md.regionSet
+        });
+      });
+    });
+    return out.sort(byTime);
+  }
+
+  var totals = { transports: 0, tracks: 0, media: 0 };
+  var transports = (snap.transports || []).map(function (tr) {
+    var mediaCount = 0;
+    // trackRefs order is the running order, which is the whole point of reading
+    // a setlist -- never sorted, alphabetically or otherwise.
+    var tracks = (tr.trackRefs || []).map(function (ref) {
+      var id = String(ref), t = byId[id];
+      // A setlist pointing at a track the capture does not hold is worth
+      // seeing, so it is reported as a stub rather than dropped or thrown on.
+      if (!t) return { id: id, name: id, lengthInSec: null, bpm: null, missing: true, items: [] };
+      var items = itemsOf(t);
+      mediaCount += items.length;
+      return { id: id, name: t.name || id, lengthInSec: nul(t.lengthInSec),
+               bpm: nul(t.bpm), items: items };
+    });
+    totals.transports++;
+    totals.tracks += tracks.length;
+    totals.media += mediaCount;
+    return { name: tr.name, setlist: tr.setlist, trackCount: tracks.length,
+             mediaCount: mediaCount, tracks: tracks };
+  });
+
+  // A track on two setlists is listed under both, and its media counted twice.
+  // That is the opposite of diffSnapshots, where the same track deliberately
+  // diffs once -- there the question is "what changed in the showfile", and one
+  // edit reported twice is a wrong answer. Here the question is "what does this
+  // setlist play", and a song in two shows is loaded for both of them.
+  return { transports: transports, totals: totals };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
+                     mediaReport: mediaReport,
                      matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
 }

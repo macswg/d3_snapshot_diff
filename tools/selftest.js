@@ -316,5 +316,119 @@ if (refs.length > 3) {
         JSON.stringify(nd.order.counts));
 }
 
+console.log('\nmedia report');
+/* The report reads one capture rather than comparing two, so the claims are
+ * about completeness and order: every setlist, every clip, in playing order. */
+var rep = diff.mediaReport(A);
+check('every transport in the capture is reported',
+      rep.transports.length === A.transports.length,
+      rep.transports.length + ' vs ' + A.transports.length);
+// An automatic setlist is the census of the showfile, and the temptation is to
+// drop it as redundant -- every track on it recurs on some named setlist. That
+// would leave the only complete inventory out of the inventory.
+var autoRep = diff.mediaReport(census);
+check('a transport on the automatic setlist is reported, not filtered out',
+      autoRep.transports.filter(function (t) { return t.setlist === 'automatic'; }).length === 1,
+      JSON.stringify(autoRep.transports.map(function (t) { return t.setlist; })));
+
+check('tracks come back in trackRefs order, not sorted',
+      rep.transports.every(function (t, i) {
+        return t.tracks.map(function (k) { return k.id; }).join('|') ===
+               (A.transports[i].trackRefs || []).map(String).join('|');
+      }),
+      JSON.stringify(rep.transports[0].tracks.slice(0, 3).map(function (k) { return k.id; })));
+
+// "The order they appear in the timeline". A null tStart has no position, so it
+// sorts last rather than to the front as a numeric 0 would put it.
+var timed = [];
+rep.transports.forEach(function (t) { t.tracks.forEach(function (k) { timed.push(k.items); }); });
+check('items are ordered by tStart with nulls last',
+      timed.every(function (items) {
+        var sawNull = false;
+        return items.every(function (it, i) {
+          if (it.tStart === null) { sawNull = true; return true; }
+          if (sawNull) return false;                       // a time after a null
+          return i === 0 || items[i - 1].tStart <= it.tStart;
+        });
+      }));
+
+// One row per media, never per layer: a layer with no clip assigned loads
+// nothing and must not appear, and a layer with two loads two.
+var shaped = JSON.parse(JSON.stringify(A));
+var st = shaped.tracks.filter(function (t) { return (t.layers || []).length; })[0];
+st.layers = [
+  { name: 'AA empty', type: 'VideoModule', groupPath: [], renderEnable: true,
+    tStart: 0, tEnd: 1, bStart: 0, bEnd: 1, tcStart: null, tcEnd: null, media: [] },
+  { name: 'BB pair', type: 'VideoModule', groupPath: [], renderEnable: true,
+    tStart: 5, tEnd: 9, bStart: 0, bEnd: 1, tcStart: null, tcEnd: null,
+    media: [{ name: 'one.mov', path: '/a/one.mov', version: 1, hasAudio: false, regionSet: null },
+            { name: 'two.mov', path: '/a/two.mov', version: 1, hasAudio: false, regionSet: null }] },
+  { name: 'CC unplaced', type: 'VideoModule', groupPath: [], renderEnable: true,
+    tStart: null, tEnd: null, bStart: 0, bEnd: 1, tcStart: null, tcEnd: null,
+    media: [{ name: 'zzz.mov', path: '/a/zzz.mov', version: 1, hasAudio: false, regionSet: null }] }
+];
+shaped.layerCount = st.layers.length;
+shaped.transports = [{ name: 'only', setlist: 'shaped', trackRefs: [st.id], trackCount: 1 }];
+var sh = diff.mediaReport(shaped).transports[0].tracks[0];
+check('a layer with no media contributes no rows, a layer with two contributes two',
+      sh.items.length === 3 &&
+      sh.items.filter(function (i) { return i.layer === 'AA empty'; }).length === 0 &&
+      sh.items.filter(function (i) { return i.layer === 'BB pair'; }).length === 2,
+      JSON.stringify(sh.items.map(function (i) { return i.layer + ':' + i.name; })));
+check('the unplaced layer sorts last despite naming first',
+      sh.items[2].layer === 'CC unplaced' && sh.items[2].tStart === null,
+      JSON.stringify(sh.items.map(function (i) { return i.layer + '@' + i.tStart; })));
+
+// A setlist can name a track that is not in the capture. The corpus has no such
+// ref, so it is built: silently dropping it hides a real fault in the show.
+var dangling = JSON.parse(JSON.stringify(shaped));
+dangling.transports[0].trackRefs = ['no_such_track_id'];
+var dg = diff.mediaReport(dangling).transports[0].tracks[0];
+check('a dangling trackRef reports missing rather than throwing',
+      dg.missing === true && dg.id === 'no_such_track_id' &&
+      dg.name === 'no_such_track_id' && dg.items.length === 0,
+      JSON.stringify(dg));
+check('a track that is present carries no missing flag',
+      rep.transports[0].tracks.every(function (k) { return !('missing' in k); }));
+
+check('totals add up to what is in the tree',
+      rep.totals.transports === rep.transports.length &&
+      rep.totals.tracks === rep.transports.reduce(function (n, t) { return n + t.tracks.length; }, 0) &&
+      rep.totals.media === rep.transports.reduce(function (n, t) {
+        return n + t.tracks.reduce(function (m, k) { return m + k.items.length; }, 0);
+      }, 0),
+      JSON.stringify(rep.totals));
+check('trackCount and mediaCount match the rows actually listed',
+      rep.transports.every(function (t) {
+        return t.trackCount === t.tracks.length &&
+               t.mediaCount === t.tracks.reduce(function (m, k) { return m + k.items.length; }, 0);
+      }));
+
+// This report is per-setlist, so a track on two of them is listed under both
+// and its media counted twice -- the opposite of the diff, where a shared track
+// deliberately reports once.
+if (sharedId) {
+  var dup = diff.mediaReport(census).transports.filter(function (t) {
+    return t.tracks.some(function (k) { return k.id === sharedId; });
+  });
+  check('a shared track is listed under every transport that references it',
+        dup.length > 1, dup.length + ' transports list ' + sharedId);
+}
+
+check('a snapshot with no transports returns empty structures',
+      (function () {
+        var e = diff.mediaReport({ tracks: A.tracks });
+        return e.transports.length === 0 && e.totals.transports === 0 &&
+               e.totals.tracks === 0 && e.totals.media === 0;
+      })());
+check('a transport with no trackRefs returns an empty track list',
+      (function () {
+        var e = diff.mediaReport({ transports: [{ name: 'x', setlist: 'y' }], tracks: null });
+        return e.transports.length === 1 && e.transports[0].tracks.length === 0 &&
+               e.transports[0].trackCount === 0 && e.transports[0].mediaCount === 0;
+      })());
+check('an entirely empty snapshot does not throw',
+      (function () { return diff.mediaReport({}).totals.transports === 0; })());
+
 console.log('\n' + (failures ? failures + ' failing' : 'all passing'));
 process.exit(failures ? 1 : 0);
