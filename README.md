@@ -12,6 +12,8 @@ without combing through raw JSON.
 
 ![The viewer comparing two captures](screenshot.png)
 
+*(The screenshot predates the tabs; it shows the Changes tab only.)*
+
 ## Use it
 
 This is designed to run entirely in the browser, client-side, with no build
@@ -413,3 +415,10 @@ automatic transport in it at all.
   way to show surrounding context the way `diff -U` does.
 - Only two snapshots at a time. A folder-wide timeline ("show me this project
   across the week") would need a different UI and is not built.
+- The media report and transport info read **After only**. Neither marks what
+  changed since Before — deliberately, since the tree already does comparison,
+  but "which versions moved since yesterday" is a fair thing to want and is not
+  answerable from the media tab today.
+- `screenshot.png` is out of date: it predates the tabs and the v5 work.
+- Narrow viewports are unverified. The media report's fixed column widths assume
+  a desktop-width window.
