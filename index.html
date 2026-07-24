@@ -243,6 +243,35 @@
     border-left: 2px solid var(--edge); padding-left: 9px;
   }
   .empty, .hint { color: var(--dim); text-align: center; padding: 60px 20px; }
+
+  /* System tab. The build sits above the switches -- it qualifies them the same
+     way it qualifies every other tab. */
+  .tp + .tp { margin-top: 22px; }
+  .sysbuild .bigver {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 15px; color: var(--fg); margin: 2px 0 8px;
+  }
+  .bflags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .bflag {
+    font-size: 11px; color: var(--ch-fg); border: 1px solid var(--ch-fg);
+    border-radius: 3px; padding: 1px 6px; letter-spacing: .02em;
+  }
+  /* Two-column key/value grid: the value column lines up down the whole block,
+     the same reason the media report uses a grid rather than flex. */
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 16px; max-width: 70ch; }
+  .kv .bk { color: var(--dim); font-size: 12.5px; }
+  .kv .bv { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .swlist { display: grid; grid-template-columns: 1fr max-content; gap: 1px 18px; max-width: 70ch; }
+  .swrow { display: contents; }
+  .swk { font-size: 13px; padding: 2px 0; }
+  /* A switch sitting at its default is context, not news -- dimmed, the same
+     bargain .node.context makes in the tree. */
+  .swk.def { color: var(--dim); }
+  .swv {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+    text-align: right; color: var(--dim);
+  }
+  .swv.on { color: var(--add-fg); }
   footer {
     border-top: 1px solid var(--edge); padding: 14px 24px;
     display: flex; gap: 14px; color: var(--dim); font-size: 12px;
@@ -259,8 +288,6 @@
     Choose the folder your snapshots are saved in and the two most recent are
     compared automatically — or set <b>Before</b> and <b>After</b> yourself by
     clicking either box or dropping a <code>.json</code> snapshot on it.
-    A Google&nbsp;Drive folder works too, as long as Drive for desktop has it
-    mounted and the files are available offline.
     Everything below is what changed from Before to After:
     <span class="a">+ added</span>, <span class="r">− removed</span>,
     <span class="c">~ changed</span>. Files are read in your browser and never
@@ -286,6 +313,7 @@
   <button type="button" class="tab on" data-tab="changes">Changes</button>
   <button type="button" class="tab" data-tab="media">Media report</button>
   <button type="button" class="tab" data-tab="transports">Transport info</button>
+  <button type="button" class="tab" data-tab="system">System</button>
 </nav>
 
 <div id="bar">
@@ -303,6 +331,7 @@
   <div id="out"><p class="hint">Pick two snapshots to compare.</p></div>
   <div id="media" hidden></div>
   <div id="transports" hidden></div>
+  <div id="system" hidden></div>
 </main>
 
 <footer>
@@ -859,6 +888,117 @@ function paintTransports() {
     : '<p class="empty">Nothing matches “' + esc(query) + '”.</p>';
 }
 
+/* System report ------------------------------------------------------------
+ * The Designer build and the option switches for one capture. Switches are
+ * compacted to the ones that are set: the file records ~125 and most sit at
+ * their default, so showing them all by default buries the handful that were
+ * deliberately changed. "show all" reveals the rest; a search reveals whatever
+ * matches regardless of state, since a hit you cannot see is not a hit.
+ */
+
+function renderBuild(build) {
+  var head = '<section class="tp sysbuild"><div class="tphead">' +
+             '<span class="tpname">Designer build</span></div>';
+  if (!build) return head + '<p class="note">This capture records no build.</p></section>';
+  if (build.error && !build.version) {
+    return head + '<p class="note">Unreadable (' + esc(build.error) + ').</p></section>';
+  }
+  var flags = build.flags.length
+    ? '<div class="bflags">' + build.flags.map(function (f) {
+        return '<span class="bflag">' + esc(f) + '</span>'; }).join('') + '</div>'
+    : '';
+  var kv = build.fields.map(function (f) {
+    return '<span class="bk">' + esc(f.k) + '</span>' +
+           '<span class="bv">' + markup(f.v) + '</span>';
+  }).join('');
+  return head + '<div class="bigver">' + markup(build.version || '—') + '</div>' +
+         flags + '<div class="kv">' + kv + '</div></section>';
+}
+
+function scopeSource(scope) {
+  if (!scope.source) return '';
+  var parts = String(scope.source).split(/[\\/]/);   // \ or / -- paths are Windows
+  return parts[parts.length - 1];
+}
+
+function renderSwitch(s) {
+  return '<div class="swrow">' +
+    '<span class="swk' + (s.isDefault ? ' def' : '') + '">' + markup(s.name) + '</span>' +
+    // An empty value ("bareSwitch") is a switch present with no argument; show a
+    // dot rather than nothing, or the row reads as missing.
+    '<span class="swv' + (s.isDefault ? '' : ' on') + '">' +
+      markup(s.value === '' ? '·' : s.value) + '</span></div>';
+}
+
+// isMachine drops the expand control: machine scope holds a switch or two, so
+// there is nothing to compact and no defaults to hide behind it.
+function renderScope(label, scope, rows, isMachine) {
+  var head = '<section class="tp"><div class="tphead"><span class="tpname">' +
+             esc(label) + ' switches</span>';
+  if (scope.unread) {
+    return head + '</div><p class="note">Could not read them' +
+      (scope.error ? ' (' + esc(scope.error) + ')' : '') +
+      '. An unread file is not an empty one — no switch listed here means ' +
+      '“not read”, not “not set”.</p></section>';
+  }
+  if (!scope.all.length) {
+    return head + '</div><p class="empty">No switches recorded.</p></section>';
+  }
+  var canExpand = !isMachine && !query && scope.all.length > scope.set.length;
+  var src = scopeSource(scope);
+  var meta = scope.set.length + ' set · ' + scope.all.length + ' recorded' +
+             (src ? ' · ' + src : '');
+  return head +
+    (canExpand ? '<button type="button" class="tpx sysx">' +
+       (systemExpanded ? 'show only set' : 'show all') + '</button>' : '') +
+    '<span class="grow of">' + esc(meta) + '</span></div>' +
+    '<div class="swlist">' + rows.map(renderSwitch).join('') + '</div></section>';
+}
+
+function filterSwitches(scope) {
+  if (scope.unread) return { list: [], hits: 0 };
+  var list = scope.all.filter(function (s) {
+    return hitsText((s.name + ' ' + s.value).toLowerCase());
+  });
+  return { list: list, hits: list.length };
+}
+
+function paintSystem() {
+  var out = document.getElementById('system');
+  var count = document.getElementById('matches');
+  count.textContent = '';
+
+  if (!lastSystem) {
+    out.innerHTML = '<p class="hint">Load a snapshot to see the Designer build ' +
+      'and its option switches. One is enough — this tab describes a single ' +
+      'capture.</p>';
+    return;
+  }
+
+  var html = renderBuild(lastSystem.build);
+
+  if (query) {
+    var pr = filterSwitches(lastSystem.project);
+    var ma = filterSwitches(lastSystem.machine);
+    var hits = pr.hits + ma.hits;
+    count.textContent = hits ? plural(hits, 'match') : 'no matches';
+    if (!hits) {
+      // The build stays -- it is not a switch, so a switch search does not hide
+      // it -- but say the switch search found nothing.
+      out.innerHTML = html + '<p class="empty">No switch matches “' +
+        esc(query) + '”.</p>';
+      return;
+    }
+    html += renderScope('Project', lastSystem.project, pr.list) +
+            renderScope('Machine', lastSystem.machine, ma.list, true);
+  } else {
+    var proj = systemExpanded ? lastSystem.project.all : lastSystem.project.set;
+    html += renderScope('Project', lastSystem.project, proj) +
+            renderScope('Machine', lastSystem.machine, lastSystem.machine.set, true);
+  }
+  out.innerHTML = html;
+}
+
 /* Summary ----------------------------------------------------------------- */
 
 // "match" needs -es, not -s. Cheap rule, but it covers every word this page
@@ -922,9 +1062,12 @@ function renderSummary(result) {
 // Diffing a big pair is not free, so it happens once per snapshot change and
 // searching re-renders from the held result rather than re-running the engine.
 // Same for the report, which walks every layer of every track.
-var lastResult = null, lastReport = null, lastTransports = null;
-// Which slot the media and transport tabs are describing, 'a' or 'b'.
+var lastResult = null, lastReport = null, lastTransports = null, lastSystem = null;
+// Which slot the media, transport and system tabs are describing, 'a' or 'b'.
 var reportSource = null;
+// The System tab hides switches at their default until asked; a fresh capture
+// starts compacted.
+var systemExpanded = false;
 var tab = 'changes', changeTally = '', hasNotes = false;
 
 function render() {
@@ -941,6 +1084,8 @@ function render() {
   var only = reportSource ? snaps[reportSource] : null;
   lastReport = only ? mediaReport(only) : null;
   lastTransports = only ? transportReport(only) : null;
+  lastSystem = only ? systemReport(only) : null;
+  systemExpanded = false;
 
   if (snaps.a && snaps.b) {
     lastResult = diffSnapshots(snaps.a, snaps.b);
@@ -968,7 +1113,8 @@ function render() {
 var PLACEHOLDER = {
   changes: 'Search changes… (name, field, value)',
   media: 'Search media… (track, file, version)',
-  transports: 'Search transports… (transport, setlist, track)'
+  transports: 'Search transports… (transport, setlist, track)',
+  system: 'Search switches… (name, value)'
 };
 
 /* Only one panel is ever visible. The bar and the search box are shared: the
@@ -985,6 +1131,7 @@ function setTab(name) {
   document.getElementById('out').hidden = !changes;
   document.getElementById('media').hidden = tab !== 'media';
   document.getElementById('transports').hidden = tab !== 'transports';
+  document.getElementById('system').hidden = tab !== 'system';
   // The summary and the notes describe the diff, so they belong to its tab.
   document.getElementById('summary').hidden =
     !(changes && lastResult && lastResult.nodes.length);
@@ -997,12 +1144,16 @@ function setTab(name) {
   // labelling it every time is noise; reading Before is the surprising case and
   // silence there would let someone attribute the numbers to the wrong capture.
   var from = reportSource === 'a' ? ' &nbsp; <span class="of">from Before</span>' : '';
+  var s = lastSystem;
   document.getElementById('tally').innerHTML =
     changes ? changeTally :
     tab === 'media' ? (m
       ? '<b>' + m.tracks + '</b> tracks &nbsp; <b>' + m.media + '</b> media' + from : '') :
-    (t ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks +
-         '</b> tracks' + from : '');
+    tab === 'transports' ? (t
+      ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks +
+        '</b> tracks' + from : '') :
+    (s ? '<b>' + s.totals.set + '</b> switches set &nbsp; ' +
+         '<span class="of">of ' + s.totals.recorded + ' recorded</span>' + from : '');
   paint();
 }
 
@@ -1011,6 +1162,7 @@ function setTab(name) {
 function paint() {
   if (tab === 'media') { paintMedia(); return; }
   if (tab === 'transports') { paintTransports(); return; }
+  if (tab === 'system') { paintSystem(); return; }
 
   var out = document.getElementById('out');
   var count = document.getElementById('matches');
@@ -1057,6 +1209,15 @@ wire('dropB', 'fileB', 'b');
   }
   document.getElementById('media').addEventListener('click', expander);
   document.getElementById('transports').addEventListener('click', expander);
+
+  // The system tab compacts by hiding defaults, not by collapsing details, so
+  // it toggles its own state and re-renders rather than flipping open flags.
+  document.getElementById('system').addEventListener('click', function (e) {
+    if (e.target.classList && e.target.classList.contains('sysx')) {
+      systemExpanded = !systemExpanded;
+      paintSystem();
+    }
+  });
 })();
 
 (function () {

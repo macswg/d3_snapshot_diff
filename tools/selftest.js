@@ -683,5 +683,47 @@ check('a Designer upgrade is reported as one build line',
 check('two captures off the same build and switches report neither',
       snapshotFields(diff.diffSnapshots(A, JSON.parse(JSON.stringify(A))).nodes).length === 0);
 
+console.log('\nthe system report (single-snapshot tab)');
+/* One capture, not a comparison -- the same shape mediaReport and
+ * transportReport take. The report is what the System tab renders. */
+var sysrep = diff.systemReport(A);
+check('the build surfaces the version and drops null fields',
+      sysrep.build && sysrep.build.version &&
+      sysrep.build.fields.every(function (f) { return f.v !== null && f.v !== ''; }),
+      JSON.stringify(sysrep.build && sysrep.build.version));
+
+// The compaction the tab depends on: set is the handful someone changed, all is
+// everything the file holds. A default-valued switch is in `all`, never `set`.
+check('set is the non-default switches, all is every recorded one',
+      sysrep.project.set.length > 0 &&
+      sysrep.project.all.length > sysrep.project.set.length &&
+      sysrep.project.set.every(function (s) { return !s.isDefault; }),
+      sysrep.project.set.length + ' set of ' + sysrep.project.all.length);
+
+check('a switch at 0 is marked default, so the tab can dim it rather than drop it',
+      (function () {
+        var zero = sysrep.project.all.filter(function (s) { return s.value === '0'; });
+        return zero.length > 0 && zero.every(function (s) { return s.isDefault; });
+      })());
+
+// The null-vs-empty rule, at the report layer this time: unread must not read
+// as "no switches", or the tab would quietly claim a default state it never saw.
+var unreadSys = diff.systemReport(withOptions(A, 'project', function (s) {
+  s.values = null; s.error = 'options.bin unreadable';
+}));
+check('an unread switch file reports unread, not an empty set',
+      unreadSys.project.unread === true && unreadSys.project.all.length === 0 &&
+      /unreadable/.test(unreadSys.project.error || ''),
+      JSON.stringify({ unread: unreadSys.project.unread, err: unreadSys.project.error }));
+
+check('the source path rides along so the tab can name the file it read',
+      /options\.bin$/.test(sysrep.project.source || ''), sysrep.project.source);
+
+check('a capture with no system block does not throw and reports no build',
+      (function () {
+        var e = diff.systemReport({ tracks: [] });
+        return e.build === null && e.project.all.length === 0 && e.totals.set === 0;
+      })());
+
 console.log('\n' + (failures ? failures + ' failing' : 'all passing'));
 process.exit(failures ? 1 : 0);

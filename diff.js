@@ -618,8 +618,88 @@ function transportReport(snap) {
   return { transports: transports, totals: totals };
 }
 
+/* The environment a capture was read in: the Designer build and the option
+ * switches. Single-snapshot, like the two reports above -- it describes one
+ * capture, not a comparison.
+ *
+ * Returns {
+ *   build: {version, error, fields:[{k,v}], flags:[string]} | null,
+ *   project: SCOPE, machine: SCOPE,
+ *   totals: {set, recorded}
+ * } where SCOPE is
+ *   {unread, source, error, set:[ROW], all:[ROW]}, ROW = {name, value, isDefault}.
+ *
+ * Two rules the plugin already enforces and the report must not undo:
+ *   - `unread` (values === null) is "could not read the file", NOT an empty set.
+ *     Merging the two would let a diff or a reader conclude no switches are set
+ *     when the truth is unknown.
+ *   - a switch is "set" only when its value is not "0"/"": the file records
+ *     defaults too, so most of a project's ~125 sit at 0 and are noise until
+ *     someone asks for all of them.
+ */
+function systemReport(snap) {
+  snap = snap || {};
+  var sys = snap.system || {};
+
+  var build = null;
+  var b = sys.build;
+  if (b) {
+    var fields = [];
+    // Curated and ordered; nulls dropped. The version is the headline and is
+    // kept separate, so it is not repeated here.
+    [['releaseType', 'licence'], ['phase', 'phase'], ['branch', 'branch'],
+     ['buildId', 'build id'], ['customRelease', 'custom release'],
+     ['platform', 'platform'], ['osImage', 'OS image'],
+     ['renderStream', 'RenderStream']].forEach(function (f) {
+      var v = b[f[0]];
+      if (v !== null && v !== undefined && v !== '') fields.push({ k: f[1], v: String(v) });
+    });
+    // Only the true flags: a false `beta` is noise, and the point of the row is
+    // to make the unusual state stand out. `custom` is omitted because the
+    // custom-release name already carries it.
+    var flags = [];
+    [['starter', 'Starter'], ['beta', 'beta'], ['rc', 'release candidate'],
+     ['debugBuild', 'debug'], ['localPatches', 'local patches']].forEach(function (f) {
+      if (b[f[0]]) flags.push(f[1]);
+    });
+    build = { version: b.version || null, error: b.error || null,
+              fields: fields, flags: flags };
+  }
+
+  function scope(o) {
+    o = o || {};
+    if (o.values === null || o.values === undefined) {
+      return { unread: true, source: o.source || null, error: o.error || null,
+               set: [], all: [] };
+    }
+    var names = [], all = [], set = [];
+    for (var k in o.values) names.push(k);
+    names.sort();
+    names.forEach(function (name) {
+      var v = String(o.values[name]);
+      var isDefault = v === '0' || v === '';
+      var row = { name: name, value: v, isDefault: isDefault };
+      all.push(row);
+      if (!isDefault) set.push(row);
+    });
+    return { unread: false, source: o.source || null, error: null,
+             set: set, all: all };
+  }
+
+  var opts = sys.options || {};
+  var project = scope(opts.project);
+  var machine = scope(opts.machine);
+
+  return {
+    build: build, project: project, machine: machine,
+    totals: { set: project.set.length + machine.set.length,
+              recorded: project.all.length + machine.all.length }
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
                      mediaReport: mediaReport, transportReport: transportReport,
+                     systemReport: systemReport,
                      matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
 }
