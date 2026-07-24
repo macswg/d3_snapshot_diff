@@ -80,6 +80,14 @@ function withCensus(snap) {
   copy.transports[0].setlist = 'automatic';
   copy.transports[0].trackRefs = copy.tracks.map(function (t) { return t.id; });
   copy.transports[0].trackCount = copy.transports[0].trackRefs.length;
+  // Null the census, or it answers first and this fixture tests nothing it
+  // claims to: a real v5 capture carries one, so an automatic transport bolted
+  // on beside it is never consulted. What is left is the fallback path, which
+  // is what these cases are actually for.
+  copy.showfile = {
+    source: 'objects/setlist/automatic.apx',
+    trackIds: null, trackCount: null, error: 'fixture: census unavailable'
+  };
   return copy;
 }
 

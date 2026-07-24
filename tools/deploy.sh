@@ -28,7 +28,7 @@ MSG=${1:-}
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [ "$BRANCH" = "main" ] || { echo "on '$BRANCH', not main -- Pages builds main" >&2; exit 1; }
 
-# Tests gate the deploy. LOGS may point at any folder of v4 captures.
+# Tests gate the deploy. LOGS may point at any folder of captures.
 LOGS=${LOGS:-../d3plg_susan_summary/example_logs}
 if [ -d "$LOGS" ]; then
   node tools/selftest.js "$LOGS" >/dev/null || { node tools/selftest.js "$LOGS"; exit 1; }
