@@ -61,15 +61,36 @@ git push -q origin "v$NEW"
 echo "pushed $(git rev-parse --short HEAD), tagged v$NEW"
 
 URL=https://macswg.github.io/d3_snapshot_diff/
+
+# Fetch to a file and grep the file, rather than piping curl into grep. Under a
+# sandbox that denies curl its stdout the pipe fails, curl exits 56, and the
+# match never happens -- so the loop ran the full five minutes and reported a
+# failed deploy twice while the new version was already live. A poll that cannot
+# tell "not deployed yet" from "could not look" is worse than no poll.
+PAGE=$(mktemp)
+trap 'rm -f "$PAGE"' EXIT
+
 printf 'waiting for %s to serve v%s' "$URL" "$NEW"
 for _ in $(seq 1 60); do
-  if curl -fsS "$URL?cb=$RANDOM" | grep -q "id=\"ver\">v$NEW<"; then
-    printf '\ndeployed: v%s is live\n' "$NEW"
-    exit 0
+  if curl -fsS "$URL?cb=$RANDOM" -o "$PAGE" 2>/dev/null; then
+    if grep -q "id=\"ver\">v$NEW<" "$PAGE"; then
+      printf '\ndeployed: v%s is live\n' "$NEW"
+      exit 0
+    fi
+    FETCHED=yes
   fi
   printf '.'
   sleep 5
 done
-printf '\nstill serving an older build after 5 minutes. Push succeeded; check\n'
-printf 'https://github.com/macswg/d3_snapshot_diff/deployments\n'
+
+# Distinguish the two failures. Serving an old build is a Pages problem; never
+# having fetched at all is a problem with this machine, and saying "still
+# serving an older build" in that case sends you to the wrong dashboard.
+if [ "${FETCHED:-}" = yes ]; then
+  printf '\nstill serving an older build after 5 minutes. Push succeeded; check\n'
+  printf 'https://github.com/macswg/d3_snapshot_diff/deployments\n'
+else
+  printf '\ncould not reach %s at all -- push succeeded, but this machine never\n' "$URL"
+  printf 'fetched the page, so whether it deployed is unknown. Check by hand.\n'
+fi
 exit 1
