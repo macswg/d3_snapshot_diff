@@ -3,6 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The three change bars from the diff gutter: added, changed, removed, in the
+     colours the diff prints them in. Inline as a data URI rather than a sibling
+     favicon.svg because a copy of this one file has to work on its own -- a
+     separate icon file 404s for anyone who saved only index.html, which is the
+     same reason there is no build step. Only #, <, > and spaces are encoded;
+     encoding the rest would make it unreadable for no gain. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%231e2128'/%3E%3Crect%20x='6'%20y='6'%20width='4'%20height='20'%20rx='2'%20fill='%236fd08c'/%3E%3Crect%20x='14'%20y='6'%20width='4'%20height='20'%20rx='2'%20fill='%23d7a45f'/%3E%3Crect%20x='22'%20y='6'%20width='4'%20height='20'%20rx='2'%20fill='%23e8737f'/%3E%3C/svg%3E">
 <title>disguise showfile snapshot diff</title>
 <style>
   :root {
@@ -343,7 +350,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.1.2</span>
+  <span id="ver">v2.1.3</span>
   <span class="who">Sean Green</span>
 </footer>
 
