@@ -476,6 +476,103 @@ jitter.tracks.forEach(function (t) {
 check('sub-epsilon float drift is not a change',
       diff.diffSnapshots(A, jitter).nodes.length === 0);
 
+console.log('\ncue identity through float drift');
+/* Cue beats arrive as float32 and a capture that re-derives one moves it far
+ * beyond EPSILON: the same untouched cue read 0.000469 beats apart in two moose
+ * captures twenty minutes apart. The old key rounded the beat to a milli-beat,
+ * so that drift straddled a bucket edge and the cue reported as an add paired
+ * with a remove. These cases pin the tolerance from both sides -- drift must be
+ * absorbed, and a real move must still register. */
+var DRIFT = 0.000469;          // the largest drift measured across the corpus
+var GAP   = 0.033203;          // the tightest genuine cue spacing in the corpus
+
+function trackWithCues(snap) {
+  return (snap.tracks || []).filter(function (t) { return (t.cues || []).length > 1; })[0];
+}
+function withCueBeats(snap, tid, fn) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  copy.tracks.forEach(function (t) { if (t.id === tid) fn(t); });
+  return copy;
+}
+function cueNodes(nodes) {
+  var out = [];
+  (function walk(list) {
+    list.forEach(function (n) {
+      if (n.entity === 'cue') out.push(n);
+      if (n.children) walk(n.children);
+    });
+  })(nodes);
+  return out;
+}
+
+var ct = trackWithCues(A);
+if (!ct) {
+  check('a track with cues exists to test against', false);
+} else {
+  // Drift moves `t` in lockstep with `beat` -- they are the same quantity in
+  // different units -- so a fix that only widened the match would relocate the
+  // phantom from the cue's identity onto its `t` field. Both must stay quiet.
+  var drifted = withCueBeats(A, ct.id, function (t) {
+    t.cues.forEach(function (c) { c.beat += DRIFT; if (typeof c.t === 'number') c.t += DRIFT; });
+  });
+  var dres = diff.diffSnapshots(A, drifted);
+  check('float32 beat drift is not an add + remove pair',
+        cueNodes(dres.nodes).length === 0,
+        JSON.stringify(dres.counts) + ' :: ' +
+        cueNodes(dres.nodes).slice(0, 3).map(function (n) { return n.kind + ' ' + n.label; }).join(' | '));
+
+  // The regression that matters. An edited note on a cue that also drifted used
+  // to vanish: the pairing failed, so there was nothing left to compare, and
+  // the change surfaced as an unexplained add beside an unexplained remove.
+  var renamed = withCueBeats(A, ct.id, function (t) {
+    t.cues[0].beat += DRIFT;
+    if (typeof t.cues[0].t === 'number') t.cues[0].t += DRIFT;
+    t.cues[0].note = 'edited in the same session';
+  });
+  var rnodes = cueNodes(diff.diffSnapshots(A, renamed).nodes);
+  check('a note edited on a drifting cue reports as a note change',
+        rnodes.length === 1 && rnodes[0].kind === 'changed' &&
+        (rnodes[0].changes || []).map(function (c) { return c.field; }).join() === 'note',
+        JSON.stringify(rnodes.map(function (n) { return n.kind + ' ' + JSON.stringify(n.changes); })));
+
+  // The other side of the bracket: the tolerance must not swallow a real edit.
+  // A cue dragged by a beat is a different position, not the same one blurred.
+  var moved1 = withCueBeats(A, ct.id, function (t) { t.cues[0].beat += 1; t.cues[0].t += 1; });
+  var mnodes = cueNodes(diff.diffSnapshots(A, moved1).nodes);
+  check('a cue moved a whole beat reads as a remove plus an add',
+        mnodes.length === 2 &&
+        mnodes.filter(function (n) { return n.kind === 'added'; }).length === 1 &&
+        mnodes.filter(function (n) { return n.kind === 'removed'; }).length === 1,
+        JSON.stringify(mnodes.map(function (n) { return n.kind; })));
+
+  // Two cues one frame apart are the closest the corpus ever puts them. The
+  // greedy merge is only sound while the tolerance stays well under this gap,
+  // so a widening that looked harmless would start fusing distinct cues here.
+  var tight = withCueBeats(A, ct.id, function (t) {
+    var extra = JSON.parse(JSON.stringify(t.cues[0]));
+    extra.beat = t.cues[0].beat + GAP;
+    if (typeof extra.t === 'number') extra.t = t.cues[0].t + GAP;
+    extra.note = 'one frame later';
+    t.cues.push(extra);
+  });
+  check('two cues one frame apart survive a diff against themselves',
+        cueNodes(diff.diffSnapshots(tight, JSON.parse(JSON.stringify(tight))).nodes).length === 0);
+
+  // Sorting is what makes the merge correct, so it has to happen on a copy --
+  // the media and transport tabs read the same arrays out of the same snapshot.
+  var scrambled = withCueBeats(A, ct.id, function (t) { t.cues.reverse(); });
+  var st = trackWithCues(scrambled);
+  var beforeOrder = (scrambled.tracks.filter(function (t) { return t.id === ct.id; })[0].cues)
+                      .map(function (c) { return c.beat; }).join();
+  var sres = diff.diffSnapshots(scrambled, A);
+  check('cues written out of beat order still match',
+        cueNodes(sres.nodes).length === 0, JSON.stringify(sres.counts));
+  check('matching does not reorder the caller\'s cue array',
+        (scrambled.tracks.filter(function (t) { return t.id === ct.id; })[0].cues)
+          .map(function (c) { return c.beat; }).join() === beforeOrder);
+  if (!st) check('scrambled fixture kept its cues', false);
+}
+
 console.log('\ninvisible whitespace in showfile names');
 /* Layer names are whatever was typed into Designer, and this corpus has four
  * that end in a space or a newline. Rendered raw, HTML swallows the difference:

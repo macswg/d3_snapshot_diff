@@ -237,7 +237,7 @@ Entities are matched by **identity, never array position**:
 | track     | `id`, which v5 derives from its resource path |
 | layer     | `groupPath` + `name`, within its track |
 | media     | `path` (falls back to `name`)          |
-| cue       | `beat`                                 |
+| cue       | `beat`, within 0.005 beats             |
 | transport | `name`                                 |
 
 A layer inserted at the top of a track is therefore **one addition**, not "every
@@ -282,6 +282,19 @@ Consequences worth knowing:
 - **Floats compare with a 1e-6 tolerance.** Beats and times are re-derived
   through the director each capture, so a position that comes back as
   `60.0000000001` is the same position, not an edit.
+- **Cue identity carries a much wider tolerance: 0.005 beats.** A cue has no
+  name or path to be known by, only its position, and beats arrive as float32,
+  so re-deriving one moves it far past 1e-6 — the same untouched cue was read
+  0.000469 beats apart in two captures twenty minutes apart. Matched exactly, it
+  reported as an add paired with a remove; had its note been edited in the same
+  session that change would have been discarded along with the pairing. The
+  number is bracketed by real captures, not chosen: ten times the largest drift
+  measured across the corpus, and six times below the tightest genuine gap
+  between two cues (0.033 beats, one frame at 30fps). A cue that really moved
+  falls outside it and still reads as a remove plus an add, which is what it is.
+  The cue's `t` is compared at the same tolerance for the same reason — it is
+  the same quantity in seconds, and comparing it tighter would only move the
+  phantom off the cue's identity and onto its fields.
 
 ## The build and the option switches
 

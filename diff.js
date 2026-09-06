@@ -11,24 +11,44 @@
 // that re-derives 128.00000001 doesn't report a change.
 var EPSILON = 1e-6;
 
+// Cue *identity* needs a far wider tolerance than EPSILON. Beats arrive as
+// float32 and re-deriving one moves it much further than a rounding wobble: the
+// same untouched cue read 0.000469 beats apart in two captures twenty minutes
+// apart. 0.005 is bracketed by the corpus rather than guessed -- ten times the
+// largest drift seen across every pair of real captures, and six times below
+// the tightest genuine gap between two cues (0.033 beats, one frame at 30fps),
+// so it can never merge two cues a director could tell apart.
+var CUE_TOLERANCE = 0.005;
+
 // Fields compared directly on an entity, in display order. Anything not listed
 // is either structural (`layers`, `cues`) or derived (`layerCount`) and would
 // only produce noise -- a layer added already reports itself.
 var TRACK_FIELDS = ['lengthInSec', 'lengthInBeats', 'bpm', 'hasTimecode', 'fps',
                     'firstTimecodeBeat', ['trashed', 'in the trash']];
-// A field is either a key, or [key, display label] where the raw name would
-// mislead. `trackCount` is the one that matters: at both snapshot and transport
-// level it counts setlist membership, not tracks in the showfile.
+// A field is either a key, [key, display label] where the raw name would
+// mislead, or [key, label, tolerance] where the default EPSILON is too tight.
+// `trackCount` is the one that matters: at both snapshot and transport level it
+// counts setlist membership, not tracks in the showfile.
 var SNAPSHOT_FIELDS  = ['project', 'scope', 'activeTransport', 'transportCount',
                         ['trackCount', 'tracks in setlists']];
 var TRANSPORT_FIELDS = ['setlist', ['trackCount', 'tracks in setlist'], 'error'];
 var LAYER_FIELDS = ['type', 'renderEnable', 'tStart', 'tEnd', 'bStart', 'bEnd',
                     'tcStart', 'tcEnd'];
 var MEDIA_FIELDS = ['name', 'path', 'version', 'hasAudio', 'regionSet'];
-var CUE_FIELDS   = ['isSection', 'note', 'section', 't', 'timecode'];
+// `t` is the cue's beat in seconds, so it carries the same float32 drift that
+// CUE_TOLERANCE exists to absorb; comparing it at EPSILON would just move the
+// phantom off the cue's identity and onto its fields. It still earns its place:
+// a track whose bpm changed keeps every cue on its beat and moves all of them
+// in seconds, and that is the one edit only `t` can report. `beat` is not
+// listed because it is the identity -- a cue whose beat really moved is out of
+// matching range and reads as a remove plus an add, which is what it is.
+var CUE_FIELDS   = ['isSection', 'note', 'section', ['t', 't', CUE_TOLERANCE],
+                    'timecode'];
 
-function sameValue(a, b) {
-  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < EPSILON;
+function sameValue(a, b, tolerance) {
+  if (typeof a === 'number' && typeof b === 'number') {
+    return Math.abs(a - b) < (tolerance === undefined ? EPSILON : tolerance);
+  }
   return a === b;
 }
 
@@ -148,9 +168,9 @@ function optionChanges(a, b, scope) {
 function fieldChanges(a, b, fields) {
   var out = [];
   for (var i = 0; i < fields.length; i++) {
-    var f = fields[i], key = f, label = f;
-    if (f instanceof Array) { key = f[0]; label = f[1]; }
-    if (!sameValue(a[key], b[key])) out.push({ field: label, from: a[key], to: b[key] });
+    var f = fields[i], key = f, label = f, tol;
+    if (f instanceof Array) { key = f[0]; label = f[1]; tol = f[2]; }
+    if (!sameValue(a[key], b[key], tol)) out.push({ field: label, from: a[key], to: b[key] });
   }
   return out;
 }
@@ -206,7 +226,44 @@ function matchBy(listA, listB, keyOf) {
 function layerKey(l) { return (l.groupPath || []).concat([l.name]).join(' / '); }
 
 function mediaKey(m) { return m.path || m.name || ''; }
-function cueKey(c) { return String(Math.round((c.beat || 0) * 1000)); }
+
+/* Cues match by proximity in beats rather than through matchBy.
+ *
+ * Every other entity here has a name or a path to be identified by. A cue has
+ * only its position, and that position is not stable to the bit, so an exact
+ * key is the wrong instrument: rounding the beat into a bucket only moves the
+ * failure to the bucket edges, which is precisely where the drift that prompted
+ * this landed. One untouched cue straddling 358.858 / 358.859 came back as an
+ * add paired with a remove -- and had its note been edited in the same session,
+ * that field change would have been thrown away with the pairing.
+ *
+ * The merge is greedy, which is safe only because CUE_TOLERANCE sits far below
+ * the closest two cues ever get: at most one candidate is ever in range, so
+ * there is no choice to get wrong. Cues sharing a beat pair in order of
+ * appearance, the same way matchBy treats duplicate keys.
+ */
+function beatOf(c) { return c.beat || 0; }
+function byBeat(x, y) { return beatOf(x) - beatOf(y); }
+
+function matchCues(listA, listB) {
+  // Sorted copies. The merge is only correct on sorted input, and while the
+  // capture happens to write cues in beat order the schema does not promise it.
+  // Copies because sorting the caller's array would reorder the snapshot the
+  // media and transport reports read from.
+  var a = (listA || []).slice().sort(byBeat);
+  var b = (listB || []).slice().sort(byBeat);
+  var added = [], removed = [], common = [];
+  var i = 0, j = 0, gap;
+  while (i < a.length && j < b.length) {
+    gap = beatOf(b[j]) - beatOf(a[i]);
+    if (Math.abs(gap) <= CUE_TOLERANCE) { common.push({ a: a[i], b: b[j] }); i++; j++; }
+    else if (gap > 0) { removed.push(a[i]); i++; }
+    else { added.push(b[j]); j++; }
+  }
+  while (i < a.length) removed.push(a[i++]);
+  while (j < b.length) added.push(b[j++]);
+  return { added: added, removed: removed, common: common };
+}
 
 function diffMedia(a, b) {
   var m = matchBy(a.media, b.media, mediaKey);
@@ -255,7 +312,7 @@ function diffLayers(trackA, trackB) {
 }
 
 function diffCues(trackA, trackB) {
-  var m = matchBy(trackA.cues, trackB.cues, cueKey);
+  var m = matchCues(trackA.cues, trackB.cues);
   var nodes = [];
   function cueLabel(c) {
     return 'cue @ beat ' + fmt(c.beat) +

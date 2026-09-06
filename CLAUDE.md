@@ -77,7 +77,17 @@ Reversing any of these will look like a simplification and will be a regression.
    it, so it belongs on the Before/After slots where all three tabs can see it.
    Giving it a section would put the environment above the showfile edits, which
    is backwards — you open these captures to see what changed in the show.
-9. **A label marks whitespace the browser would swallow; identity does not.**
+9. **A cue is matched by proximity, not by a key.** Beats are float32 and a
+   re-derived one drifts 0.000469 — far past `EPSILON`. Any exact key, including
+   a rounded bucket, just relocates the failure to its edges: one untouched cue
+   straddling 358.858/358.859 reported as an add plus a remove, and an edit to
+   its note would have been thrown away with the pairing. `CUE_TOLERANCE` is
+   0.005 because the corpus brackets it there — 10x the largest drift measured,
+   6x below the tightest real cue spacing (0.033 beats, a frame at 30fps). The
+   greedy merge in `matchCues` is only sound while that gap holds, so widening
+   the tolerance is not a free knob. `t` is compared at the same tolerance; it
+   is the same quantity in seconds.
+10. **A label marks whitespace the browser would swallow; identity does not.**
     Layer names come from Designer and the corpus has four ending in a space or
     a newline — `999_vis` holds `[TEXT] B` and `[TEXT] B\n` as separate layers,
     which rendered raw are the same row, so removing one printed a duplicate.
@@ -91,7 +101,7 @@ Reversing any of these will look like a simplification and will be a regression.
     than the diff can: they describe every row, so a dirty name on a layer
     nobody edited still shows. Their track `id` stays raw — the page keys rows
     on it.
-10. **Media and transport info need one snapshot, not two.** They read After
+11. **Media and transport info need one snapshot, not two.** They read After
     when there is one and Before otherwise (`reportSource` in `index.html`), so
     a single capture is enough to look at the show you have. Preferring After is
     what keeps the answer stable as files arrive instead of switching which
