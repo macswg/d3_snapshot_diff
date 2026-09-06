@@ -235,7 +235,7 @@ Entities are matched by **identity, never array position**:
 | entity    | identity                               |
 |-----------|----------------------------------------|
 | track     | `id`, which v5 derives from its resource path |
-| layer     | `groupPath` + `name`, within its track |
+| layer     | `id` (v7); `groupPath` + `name` otherwise, within its track |
 | media     | `path` (falls back to `name`)          |
 | cue       | `beat`, within 0.005 beats             |
 | transport | `name`                                 |
@@ -255,6 +255,28 @@ Consequences worth knowing:
 - **Media swaps read as remove + add**, not `path: old → new`, because media
   identity *is* the path. A different clip is a different resource, not an
   edited one.
+- **Layer ids are used only when both captures have them.** A v7 capture keyed
+  against a v6 one on `id` matches nothing at all and reports every layer in the
+  show removed and re-added — 1,811 findings against 1,786 layers, the loudest
+  possible way to say nothing. Every layer in a track must carry an id too, or
+  the track would be keyed half one way and half the other. Because the id is
+  the key on a v7 pair, `name` and `group` are compared as fields: a rename or a
+  move between groups would otherwise match silently and print no news.
+- **The id is appended to a label only where the name is ambiguous, and what is
+  appended depends on `idSource`.** Matching by id answers *whether* a stacked
+  duplicate was removed; the label is what answers *which*. Hanging `#40213` off
+  all 1,935 layers would be noise on the 1,121 that never needed it, so it
+  appears only where a sibling shares the name. A `uid` id is short and adds
+  something the row does not already say — `removed layer [VID]
+  250_seek_tvision_a_alpha_ll180 (#40406)`. A `derived` id opens with the very
+  group and name the label just printed (`Backdrops/Solo @0.00-10.00`), so its
+  extents go in instead and the name is not repeated. Extents are read from the
+  layer's own `tStart`/`tEnd`, never parsed back out of the id — the viewer has
+  no business knowing the plugin's id format, and a layer name containing `" @"`
+  would defeat any attempt to split one. Only when group, name *and* extents all
+  match does the whole id go in; that is the `250_seek` case with no UID to
+  resolve it, where the `~<n>` suffix buried in the id is the one thing dividing
+  the two rows.
 - **Invisible whitespace in a name is marked in the label.** Layer names are
   whatever was typed into Designer, and real captures carry names ending in a
   space or a newline — `999_vis` holds both `[TEXT] B` and `[TEXT] B\n`, which
@@ -337,8 +359,8 @@ set it. Machine ones are labelled `(machine)`.
 
 ## Schema
 
-Reads **v6 only**, and refuses anything else at load with a message naming the
-version. There is deliberately no back-compatibility, including with v5.
+Reads **v6 and v7**, and refuses anything else at load with a message naming the
+version. There is deliberately no back-compatibility below that, including v5.
 
 A v1 log has a top-level `transport` with tracks inline rather than referenced,
 so identity matching cannot line up at all. v4 is subtler and worse: it lines up
@@ -354,6 +376,23 @@ census is captured explicitly. v5 is nonetheless blind in the other direction:
 it records nothing about the software underneath, so a pair spanning a Designer
 upgrade or a flipped option switch reads as "the environment did not change"
 when the environment is the only thing that did. v6 adds `system`.
+
+v7 adds identity to layers — `uid`, `id` and `idSource` on every layer record —
+and changes nothing else, which is why both versions load. Before it, a layer had
+nothing of its own to be known by: **814 of this show's 1,935 layers share
+`groupPath` + `name` with a sibling in the same track**, and one track held three
+records named `[VID] 250_seek_tvision_a_alpha_ll180`, two of them equal in every
+field down to the media version. When one disappeared, no diff could say which.
+`idSource` says where the id came from — `uid` is the director's own resource
+UID and survives a rename, a retime and a move between groups; `derived` means
+the UID could not be read and the id was rebuilt from `groupPath`, `name` and
+extents, so it is only as good as those — and specifically **a derived id is not
+move-stable**: groupPath is baked into it, so a `derived` layer dragged into
+another group changes its own id and reads as a remove plus an add, where a `uid`
+layer keeps its id and reports the move as a `group` change on one row.
+A repeated UID inside one track lands in
+the capture's `debug` array: it means the traversal reached one layer twice, so
+it is an artefact of the capture and not two layers.
 
 Bump the check in `index.html` alongside `SCHEMA_VERSION` in the plugin's
 `snapshot.py`, and add any new comparable fields to the field lists at the top

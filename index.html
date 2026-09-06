@@ -421,7 +421,7 @@ function load(file, slot, drop) {
   reader.onload = function () {
     try {
       var data = JSON.parse(reader.result);
-      // v6 only, deliberately. A v1 log has a top-level `transport` with tracks
+      // v6 and v7 only, deliberately. A v1 log has a top-level `transport` with tracks
       // inline rather than referenced, so identity matching cannot line up at
       // all. v4 lines up but lies quietly: its track ids are display names
       // disambiguated in capture order, so the same show can hand out different
@@ -432,9 +432,13 @@ function load(file, slot, drop) {
       // switch reads as "the environment did not change" when the environment
       // is the only thing that did. Rendering any of them is worse than
       // refusing.
-      if (data.schemaVersion !== 6) {
+      // v7 only adds identity to layers -- uid, id and idSource -- and changes
+      // nothing else, so a v6 capture stays as comparable as it ever was and
+      // the four on disk stay loadable. A v6/v7 pair falls back to the old
+      // layer key on both sides; see `layersHaveIds` in diff.js.
+      if (data.schemaVersion !== 6 && data.schemaVersion !== 7) {
         throw new Error('schema v' + data.schemaVersion + ' is not comparable — ' +
-                        'this viewer reads v6. Re-capture with the current plugin.');
+                        'this viewer reads v6 and v7. Re-capture with the current plugin.');
       }
       snaps[slot] = data;
       drop.classList.add('filled');

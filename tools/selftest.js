@@ -701,6 +701,191 @@ if (!(wsTr.transports || []).length) {
         trep.tracks[0] && trep.tracks[0].id);
 }
 
+console.log('\nv7 layer identity');
+/* Fixtures, not corpus, and for once that is not a compromise: no v7 capture
+ * exists yet -- writing one needs a live director run with the new plugin -- so
+ * the ids are synthesised onto a real capture. Everything under them is real.
+ *
+ * The problem v7 solves is measurable in the corpus: 814 of the 1935 layers in
+ * moose_sphere share groupPath + name with a sibling, and on 2026-09-05 one
+ * track carried three records named `[VID] 250_seek_tvision_a_alpha_ll180`, two
+ * equal in every field down to the media version. One went 21 minutes later and
+ * the capture could not say which. */
+function asV7(snap) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  copy.schemaVersion = 7;
+  var uid = 40000;
+  copy.tracks.forEach(function (t) {
+    (t.layers || []).forEach(function (l) {
+      l.uid = uid++;
+      l.id = '#' + l.uid;
+      l.idSource = 'uid';
+    });
+  });
+  return copy;
+}
+function firstLayerTrack(snap) {
+  return (snap.tracks || []).filter(function (t) { return (t.layers || []).length; })[0];
+}
+function editLayer(snap, fn) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  fn(firstLayerTrack(copy).layers[0], firstLayerTrack(copy));
+  return copy;
+}
+function layerFindings(nodes) {
+  return findings(nodes).filter(function (f) { return / layer /.test(f); });
+}
+
+var v7 = asV7(A);
+
+// The new fields must be invisible to the diff. LAYER_FIELDS is an allow-list,
+// so uid/id/idSource are not compared -- but that is worth pinning, because
+// adding them would put three lines on every layer in the show.
+check('a v7 capture against a copy of itself reports nothing',
+      diff.diffSnapshots(v7, JSON.parse(JSON.stringify(v7))).nodes.length === 0,
+      JSON.stringify(diff.diffSnapshots(v7, JSON.parse(JSON.stringify(v7))).counts));
+
+// The whole point of an id: these three edits used to be a remove plus an add,
+// because every one of them changed the key.
+check('keyed by id, a rename is a name change rather than a remove plus an add',
+      (function () {
+        var r = diff.diffSnapshots(v7, editLayer(v7, function (l) { l.name = 'renamed entirely'; }));
+        var f = layerFindings(r.nodes);
+        return f.length === 1 && /^changed /.test(f[0]) &&
+               changedFields(r.nodes, f[0].replace(/^changed /, '')).indexOf('name') !== -1;
+      })(), layerFindings(diff.diffSnapshots(v7, editLayer(v7, function (l) { l.name = 'renamed entirely'; })).nodes).join(' | '));
+
+check('keyed by id, a move between groups is a group change',
+      (function () {
+        var r = diff.diffSnapshots(v7, editLayer(v7, function (l) { l.groupPath = ['SOMEWHERE ELSE']; }));
+        var f = layerFindings(r.nodes);
+        return f.length === 1 && /^changed /.test(f[0]) &&
+               changedFields(r.nodes, f[0].replace(/^changed /, '')).indexOf('group') !== -1;
+      })(), layerFindings(diff.diffSnapshots(v7, editLayer(v7, function (l) { l.groupPath = ['SOMEWHERE ELSE']; })).nodes).join(' | '));
+
+/* The 250_seek case, reduced. Two records identical in every field but the id;
+ * one is deleted. Before v7 this reported "removed layer <name>" against a name
+ * that still had a twin on the timeline, so the line named nothing. */
+var stacked = JSON.parse(JSON.stringify(v7));
+var stk = firstLayerTrack(stacked);
+var twin = JSON.parse(JSON.stringify(stk.layers[0]));
+twin.uid = 99999; twin.id = '#99999';
+stk.layers.push(twin);
+stk.layerCount = stk.layers.length;
+var pulled = JSON.parse(JSON.stringify(stacked));
+firstLayerTrack(pulled).layers.pop();
+
+check('two layers identical but for their id diff as two, not one',
+      diff.diffSnapshots(stacked, JSON.parse(JSON.stringify(stacked))).nodes.length === 0);
+check('removing one of a stacked pair names which one by id',
+      (function () {
+        var f = layerFindings(diff.diffSnapshots(stacked, pulled).nodes);
+        return f.length === 1 && /^removed /.test(f[0]) && f[0].indexOf('#99999') !== -1;
+      })(), layerFindings(diff.diffSnapshots(stacked, pulled).nodes).join(' | '));
+// ...and the id rides along only where it is needed to tell two rows apart.
+check('an unambiguous layer name is not decorated with an id',
+      layerFindings(diff.diffSnapshots(v7, editLayer(v7, function (l) { l.tStart = 987.5; })).nodes)
+        .every(function (f) { return f.indexOf('#') === -1; }),
+      layerFindings(diff.diffSnapshots(v7, editLayer(v7, function (l) { l.tStart = 987.5; })).nodes).join(' | '));
+
+/* What rides in the label depends on where the id came from. A uid says
+ * something the row does not; a derived id opens with the name the row just
+ * printed, so it is the extents that carry the news. */
+function stackedPair(mutate) {
+  var snap = JSON.parse(JSON.stringify(v7));
+  var t = firstLayerTrack(snap);
+  var extra = JSON.parse(JSON.stringify(t.layers[0]));
+  extra.uid = 99999; extra.id = '#99999';
+  mutate(t.layers[0], extra);
+  t.layers.push(extra);
+  t.layerCount = t.layers.length;
+  var gone = JSON.parse(JSON.stringify(snap));
+  firstLayerTrack(gone).layers.pop();
+  return layerFindings(diff.diffSnapshots(snap, gone).nodes);
+}
+
+check('a uid id rides in the label as itself',
+      (function () {
+        var f = stackedPair(function (a, b) { b.idSource = 'uid'; });
+        return f.length === 1 && f[0].indexOf('(#99999)') !== -1;
+      })(), stackedPair(function (a, b) { b.idSource = 'uid'; }).join(' | '));
+
+// A derived id restates the group and name the label already prints. The
+// extents are the part that differs, so the extents are what is shown.
+check('a derived id shows its extents, not the name over again',
+      (function () {
+        var f = stackedPair(function (a, b) {
+          b.idSource = 'derived'; b.id = 'Backdrops/Solo @77.00-88.00';
+          b.tStart = 77; b.tEnd = 88;
+        });
+        return f.length === 1 && f[0].indexOf('(@77-88)') !== -1 &&
+               f[0].indexOf('Backdrops/Solo') === -1;
+      })(), stackedPair(function (a, b) {
+        b.idSource = 'derived'; b.id = 'Backdrops/Solo @77.00-88.00';
+        b.tStart = 77; b.tEnd = 88;
+      }).join(' | '));
+
+/* The residual: group, name AND extents all equal, which is the 250_seek case
+ * with no UID to resolve it. Nothing shorter than the id divides these two, so
+ * the id goes in whole -- the `~<n>` suffix inside it is the only difference. */
+check('when even the extents match, the whole derived id goes in',
+      (function () {
+        var f = stackedPair(function (a, b) {
+          a.idSource = 'derived'; a.id = 'Solo @0.00-10.00';
+          b.idSource = 'derived'; b.id = 'Solo @0.00-10.00~2';
+        });
+        return f.length === 1 && f[0].indexOf('~2') !== -1;
+      })(), stackedPair(function (a, b) {
+        a.idSource = 'derived'; a.id = 'Solo @0.00-10.00';
+        b.idSource = 'derived'; b.id = 'Solo @0.00-10.00~2';
+      }).join(' | '));
+
+// An id with no idSource is read as derived: extents distinguish either way,
+// where printing a name-shaped id a second time never helps.
+check('an id with no idSource is treated as derived, not as a uid',
+      (function () {
+        var f = stackedPair(function (a, b) {
+          delete b.idSource; b.id = 'Solo @55.00-66.00'; b.tStart = 55; b.tEnd = 66;
+        });
+        return f.length === 1 && f[0].indexOf('(@55-66)') !== -1;
+      })(), stackedPair(function (a, b) {
+        delete b.idSource; b.id = 'Solo @55.00-66.00'; b.tStart = 55; b.tEnd = 66;
+      }).join(' | '));
+
+/* Mixed pairs. Four v6 captures stay on disk and stay loadable, so a v6/v7 pair
+ * is a real thing to hand the viewer. Keyed on id it would match nothing at all
+ * and report every layer in the show removed and re-added. */
+var mixed = diff.diffSnapshots(A, asV7(B));
+var plainV6 = diff.diffSnapshots(A, B);
+// The id decoration is stripped before comparing: the v7 side can tell its
+// ambiguous names apart and says so, which is the point of it. What must match
+// is which layers were paired, not how the rows are captioned.
+function undecorated(nodes) {
+  return layerFindings(nodes).map(function (f) { return f.replace(/ \(#\d+\)/g, ''); });
+}
+check('a v6/v7 pair falls back to the name key instead of replacing the show',
+      JSON.stringify(undecorated(mixed.nodes)) === JSON.stringify(undecorated(plainV6.nodes)),
+      undecorated(mixed.nodes).length + ' layer findings vs ' +
+      undecorated(plainV6.nodes).length + ' for the same pair read as v6');
+// Concretely: keyed on id, every layer on both sides would be unmatched. That
+// number is what the fallback exists to avoid, so name it rather than trust the
+// comparison above to notice.
+check('and does not report the whole show removed and re-added',
+      layerFindings(mixed.nodes).length <
+        (A.tracks || []).reduce(function (n, t) { return n + (t.layers || []).length; }, 0),
+      layerFindings(mixed.nodes).length + ' findings against ' +
+      (A.tracks || []).reduce(function (n, t) { return n + (t.layers || []).length; }, 0) +
+      ' layers in Before alone');
+
+// A capture where the director answered for some layers and not others must not
+// key half a track each way; the halves would never line up across a pair.
+var partial = JSON.parse(JSON.stringify(v7));
+delete firstLayerTrack(partial).layers[0].id;
+check('a track with ids on only some layers falls back rather than splitting',
+      JSON.stringify(layerFindings(diff.diffSnapshots(partial, editLayer(partial, function (l2, t) {
+        t.layers[t.layers.length - 1].tStart = 555.5;
+      })).nodes).length) === '1');
+
 console.log('\nderived counters');
 // layerCount is derived from `layers`. Comparing it as well would report every
 // structural edit twice, so it must not appear as a field change.

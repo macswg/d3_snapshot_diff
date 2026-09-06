@@ -32,8 +32,12 @@ var TRACK_FIELDS = ['lengthInSec', 'lengthInBeats', 'bpm', 'hasTimecode', 'fps',
 var SNAPSHOT_FIELDS  = ['project', 'scope', 'activeTransport', 'transportCount',
                         ['trackCount', 'tracks in setlists']];
 var TRANSPORT_FIELDS = ['setlist', ['trackCount', 'tracks in setlist'], 'error'];
-var LAYER_FIELDS = ['type', 'renderEnable', 'tStart', 'tEnd', 'bStart', 'bEnd',
-                    'tcStart', 'tcEnd'];
+// `name` is compared even though it is half the fallback key. Keyed by name it
+// can never differ between two matched layers, so the entry costs nothing; keyed
+// by a v7 id it is the only thing that reports a rename, which would otherwise
+// match silently and print no news at all.
+var LAYER_FIELDS = ['name', 'type', 'renderEnable', 'tStart', 'tEnd', 'bStart',
+                    'bEnd', 'tcStart', 'tcEnd'];
 var MEDIA_FIELDS = ['name', 'path', 'version', 'hasAudio', 'regionSet'];
 // `t` is the cue's beat in seconds, so it carries the same float32 drift that
 // CUE_TOLERANCE exists to absorb; comparing it at EPSILON would just move the
@@ -225,6 +229,80 @@ function matchBy(listA, listB, keyOf) {
 
 function layerKey(l) { return (l.groupPath || []).concat([l.name]).join(' / '); }
 
+/* Layer identity, and why it is decided per pair rather than per layer.
+ *
+ * Before v7 a layer had nothing of its own to be known by, so the best key
+ * available was groupPath + name -- which 814 of this show's 1935 layers share
+ * with a sibling in the same track. On 2026-09-05 one track held three records
+ * named `[VID] 250_seek_tvision_a_alpha_ll180`, two of them equal in every
+ * field down to the media version. One disappeared 21 minutes later and no
+ * amount of care with that key could say which, because the two were the same
+ * string. v7 gives each layer an id from the director's resource UID that
+ * survives a rename, a retime and a move between groups.
+ *
+ * Both sides must carry ids before either is keyed on one. A v7 capture keyed
+ * against a v6 capture on id finds no match anywhere and reports every layer in
+ * the show removed and re-added -- the loudest possible way to say nothing.
+ * Every layer in the list must carry one too: a capture where the director
+ * answered for some layers and not others would key half a track each way, and
+ * the halves would never line up.
+ */
+function layersHaveIds(list) {
+  var ls = list || [];
+  if (!ls.length) return false;
+  for (var i = 0; i < ls.length; i++) {
+    if (typeof ls[i].id !== 'string' || ls[i].id === '') return false;
+  }
+  return true;
+}
+
+function layerIdKey(l) { return String(l.id); }
+
+/* A label that can tell two layers apart when their names cannot.
+ *
+ * Matching by id answers *whether* a stacked duplicate was removed; it does not
+ * answer *which*, because both print the same name. The id is appended only
+ * where the name is genuinely ambiguous inside its track -- hanging `#40213` off
+ * every layer in a 1,935-layer show would be noise on the 1,121 that never
+ * needed it.
+ *
+ * What gets appended depends on where the id came from. A uid id is short and
+ * says something the row does not: `#40406` appends cleanly. A derived id is the
+ * opposite -- `Backdrops/Solo @0.00-10.00` opens with the very name the label
+ * just printed, so appending it whole prints the name twice and buries the only
+ * part that differs. For those, show the extents the derived id is built from,
+ * read from the layer's own fields rather than parsed back out of the id: the
+ * viewer has no business knowing the plugin's id format, and a layer name
+ * containing " @" would defeat any attempt to split one.
+ *
+ * When the extents match too, the id is all that is left. Two layers agreeing on
+ * group, name and extents are the 250_seek case with no UID to resolve it, and
+ * the plugin's `~<n>` suffix buried in the id is the only thing dividing them.
+ * Long and ugly beats two rows a reader cannot tell apart.
+ */
+function layerSpan(l) { return '@' + fmt(l.tStart) + '-' + fmt(l.tEnd); }
+
+function layerLabeller(list) {
+  var shared = Object.create(null), spans = Object.create(null), i, ls = list || [];
+  function spanKey(l) { return layerKey(l) + ' ' + layerSpan(l); }
+  for (i = 0; i < ls.length; i++) {
+    shared[layerKey(ls[i])] = (shared[layerKey(ls[i])] || 0) + 1;
+    spans[spanKey(ls[i])] = (spans[spanKey(ls[i])] || 0) + 1;
+  }
+  return function (l) {
+    var base = showWhitespace(layerKey(l));
+    if (shared[layerKey(l)] <= 1) return base;
+    if (typeof l.id !== 'string' || l.id === '') return base;
+    // Anything that is not explicitly a uid is treated as derived. An absent
+    // idSource is the conservative case: extents distinguish either way, where
+    // printing a name-shaped id twice never helps.
+    if (l.idSource === 'uid') return base + ' (' + showWhitespace(l.id) + ')';
+    if (spans[spanKey(l)] <= 1) return base + ' (' + layerSpan(l) + ')';
+    return base + ' (' + showWhitespace(l.id) + ')';
+  };
+}
+// Media identity is the path; two layers can hold clips with the same display
+// name from different folders. Name is the fallback when path failed to read.
 function mediaKey(m) { return m.path || m.name || ''; }
 
 /* Cues match by proximity in beats rather than through matchBy.
@@ -289,22 +367,32 @@ function diffMedia(a, b) {
 }
 
 function diffLayers(trackA, trackB) {
-  var m = matchBy(trackA.layers, trackB.layers, layerKey);
+  var useIds = layersHaveIds(trackA.layers) && layersHaveIds(trackB.layers);
+  var m = matchBy(trackA.layers, trackB.layers, useIds ? layerIdKey : layerKey);
+  var labelA = layerLabeller(trackA.layers), labelB = layerLabeller(trackB.layers);
   var nodes = [];
   m.added.forEach(function (l) {
     nodes.push({ kind: 'added', entity: 'layer',
-                 label: 'layer ' + showWhitespace(layerKey(l)), detail: l.type });
+                 label: 'layer ' + labelB(l), detail: l.type });
   });
   m.removed.forEach(function (l) {
     nodes.push({ kind: 'removed', entity: 'layer',
-                 label: 'layer ' + showWhitespace(layerKey(l)), detail: l.type });
+                 label: 'layer ' + labelA(l), detail: l.type });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, LAYER_FIELDS);
+    // groupPath is the other half of the fallback key, and it has the same blind
+    // spot `name` does: keyed by id, a layer dragged into another group matches
+    // and would report nothing. Compared whole, the way cue tags are, because it
+    // is a list and a partial move is not a thing.
+    var ga = (p.a.groupPath || []).join(' / '), gb = (p.b.groupPath || []).join(' / ');
+    if (ga !== gb) {
+      ch.push({ field: 'group', from: showWhitespace(ga), to: showWhitespace(gb) });
+    }
     var kids = diffMedia(p.a, p.b);
     if (ch.length || kids.length) {
       nodes.push({ kind: 'changed', entity: 'layer',
-                   label: 'layer ' + showWhitespace(layerKey(p.b)),
+                   label: 'layer ' + labelB(p.b),
                    changes: ch, children: kids });
     }
   });

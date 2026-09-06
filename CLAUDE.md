@@ -6,7 +6,7 @@ are easy to get wrong.
 
 ## What this is
 
-A browser viewer for `susan_summary` v6 JSON snapshots of a disguise d3
+A browser viewer for `susan_summary` v6 and v7 JSON snapshots of a disguise d3
 showfile. Three tabs: a semantic diff of two captures, a media inventory of one,
 and a per-transport view of one. Every tab carries a header line naming the
 Designer build each capture came from.
@@ -101,7 +101,25 @@ Reversing any of these will look like a simplification and will be a regression.
     than the diff can: they describe every row, so a dirty name on a layer
     nobody edited still shows. Their track `id` stays raw — the page keys rows
     on it.
-11. **Media and transport info need one snapshot, not two.** They read After
+11. **A layer is keyed by its v7 `id`, but only when both captures have one.**
+    Before v7 a layer had no identity of its own and the best key available was
+    `groupPath` + `name`, which 814 of this show's 1935 layers share with a
+    sibling; one track held three records named `[VID] 250_seek_tvision_a_alpha_ll180`,
+    two equal in every field down to the media version. Keying a v7 capture
+    against a v6 one on `id` matches nothing and reports the whole show removed
+    and re-added — 1811 findings against 1786 layers, verified by deliberately
+    breaking the guard. `layersHaveIds` therefore demands ids on *every* layer of
+    *both* sides before either is used. Because the id becomes the key, `name`
+    and `group` must be compared as fields or a rename and a move between groups
+    match silently; and the id is appended to a label only where a sibling shares
+    the name, because decorating all 1935 is noise on the 1121 that never needed
+    it. What is appended keys off `idSource`: a `uid` id goes in whole, a
+    `derived` one opens with the name the label just printed so its extents go
+    in instead — read from the layer's own fields, never parsed out of the id,
+    because the viewer must not learn the plugin's id format. `derived` ids are
+    not move-stable (groupPath is baked in), so a move reads as remove plus add
+    on those; the asymmetry with `uid` is deliberate on both sides.
+12. **Media and transport info need one snapshot, not two.** They read After
     when there is one and Before otherwise (`reportSource` in `index.html`), so
     a single capture is enough to look at the show you have. Preferring After is
     what keeps the answer stable as files arrive instead of switching which
@@ -160,6 +178,19 @@ live page until it serves the new version, because the build API lags the CDN.
 ## The other half
 
 The plugin that writes these captures is a separate repo,
-`d3plg_susan_summary`. **The two ship together.** This viewer reads v6 only and
-refuses anything else, so a schema change means releasing both. See that repo's
+`d3plg_susan_summary`. **The two ship together.** This viewer reads v6 and v7 and
+refuses anything else, so a schema change means releasing both. v7 adds `uid`,
+`id` and `idSource` to every layer and touches nothing else, which is the only
+reason two versions load at once; a change with any other shape gets one version,
+not two.
+
+**One invariant is agreed across the two repos and written down in both.** A
+layer must keep `tStart` and `tEnd` on its record, even though a derived `id`
+already encodes them. The viewer reads those fields directly and never parses the
+id string, so the plugin is free to change the derived id format without touching
+anything here — and must not drop the extents as redundant, which is exactly how
+this would get broken by someone tidying up two versions from now. The parse the
+contract avoids is not hypothetical: this show has layer names carrying trailing
+spaces and embedded newlines, and one containing `" @"` would defeat any attempt
+to split an id on it. See that repo's
 `CLAUDE.md` for the capture side.
