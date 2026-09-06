@@ -424,10 +424,12 @@ when the environment is the only thing that did. v6 adds `system`.
 
 v7 adds identity to layers — `uid`, `id` and `idSource` on every layer record —
 and changes nothing else, which is why both versions load. Before it, a layer had
-nothing of its own to be known by: **814 of this show's 1,935 layers share
-`groupPath` + `name` with a sibling in the same track**, and one track held three
-records named `[VID] 250_seek_tvision_a_alpha_ll180`, two of them equal in every
-field down to the media version. When one disappeared, no diff could say which.
+nothing of its own to be known by: **881 of this show's 2,031 layers — 43% —
+share `groupPath` + `name` with a sibling in the same track**, and one track held
+three records named `[VID] 250_seek_tvision_a_alpha_ll180`, two of them equal in
+every field down to the media version. When one disappeared, no diff could say
+which. Real v7 captures confirm both halves: the collision rate holds at 43%, and
+every layer's id is unique within its track, as the plugin promises.
 `idSource` says where the id came from — `uid` is the director's own resource
 UID and survives a rename, a retime and a move between groups; `derived` means
 the UID could not be read and the id was rebuilt from `groupPath`, `name` and

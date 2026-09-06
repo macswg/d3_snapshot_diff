@@ -582,8 +582,23 @@ console.log('\ninvisible whitespace in showfile names');
 function layerLabels(nodes) {
   return findings(nodes).filter(function (f) { return /^\w+ layer /.test(f); });
 }
-function withLayerName(snap, name) {
+/* Strip layer identity, so a fixture keys on groupPath + name whatever the
+ * corpus happens to be. These cases are about what a label prints when two names
+ * collide, which is a v6-shaped question; inheriting v7 ids from the corpus made
+ * five of them assert an add-plus-remove that a keyed diff correctly no longer
+ * produces. That is the census scar again -- a test quietly measuring something
+ * else the day a new field lands -- so the schema is stated here, not inherited. */
+function asV6(snap) {
   var copy = JSON.parse(JSON.stringify(snap));
+  copy.schemaVersion = 6;
+  copy.tracks.forEach(function (t) {
+    (t.layers || []).forEach(function (l) { delete l.uid; delete l.id; delete l.idSource; });
+  });
+  return copy;
+}
+
+function withLayerName(snap, name) {
+  var copy = asV6(snap);
   var t = copy.tracks.filter(function (x) { return (x.layers || []).length; })[0];
   if (t) t.layers[0].name = name;
   return copy;
@@ -622,7 +637,7 @@ check('a non-breaking space is named by codepoint, not shown as a space',
  * stays raw. Keyed on a marked name, `B` and `B\n` would differ by a symbol
  * instead of by the one character they actually differ by -- which is the same
  * class of mistake as matching cues on an exact beat. */
-var twoLayers = JSON.parse(JSON.stringify(A));
+var twoLayers = asV6(A);
 var wt = twoLayers.tracks.filter(function (t) { return (t.layers || []).length; })[0];
 if (!wt) {
   check('a track with layers exists to test against', false);
@@ -721,7 +736,7 @@ console.log('\nv7 layer identity');
  * equal in every field down to the media version. One went 21 minutes later and
  * the capture could not say which. */
 function asV7(snap) {
-  var copy = JSON.parse(JSON.stringify(snap));
+  var copy = asV6(snap);
   copy.schemaVersion = 7;
   var uid = 40000;
   copy.tracks.forEach(function (t) {
@@ -864,8 +879,9 @@ check('an id with no idSource is treated as derived, not as a uid',
 /* Mixed pairs. Four v6 captures stay on disk and stay loadable, so a v6/v7 pair
  * is a real thing to hand the viewer. Keyed on id it would match nothing at all
  * and report every layer in the show removed and re-added. */
-var mixed = diff.diffSnapshots(A, asV7(B));
-var plainV6 = diff.diffSnapshots(A, B);
+var v6A = asV6(A), v6B = asV6(B);
+var mixed = diff.diffSnapshots(v6A, asV7(v6B));
+var plainV6 = diff.diffSnapshots(v6A, v6B);
 // The id decoration is stripped before comparing: the v7 side can tell its
 // ambiguous names apart and says so, which is the point of it. What must match
 // is which layers were paired, not how the rows are captioned.
@@ -881,9 +897,9 @@ check('a v6/v7 pair falls back to the name key instead of replacing the show',
 // comparison above to notice.
 check('and does not report the whole show removed and re-added',
       layerFindings(mixed.nodes).length <
-        (A.tracks || []).reduce(function (n, t) { return n + (t.layers || []).length; }, 0),
+        (v6A.tracks || []).reduce(function (n, t) { return n + (t.layers || []).length; }, 0),
       layerFindings(mixed.nodes).length + ' findings against ' +
-      (A.tracks || []).reduce(function (n, t) { return n + (t.layers || []).length; }, 0) +
+      (v6A.tracks || []).reduce(function (n, t) { return n + (t.layers || []).length; }, 0) +
       ' layers in Before alone');
 
 // A capture where the director answered for some layers and not others must not
@@ -894,6 +910,70 @@ check('a track with ids on only some layers falls back rather than splitting',
       JSON.stringify(layerFindings(diff.diffSnapshots(partial, editLayer(partial, function (l2, t) {
         t.layers[t.layers.length - 1].tStart = 555.5;
       })).nodes).length) === '1');
+
+console.log('\nv7 in the corpus');
+/* The cases above are fixtures because for a while no v7 capture existed. These
+ * are the real thing, and they are guarded rather than skipped in silence: a v6
+ * corpus is perfectly legitimate, but it has to say so out loud instead of
+ * leaving five passes that measured nothing -- which is how the census field
+ * quietly disarmed two cases once already. */
+if (A.schemaVersion !== 7 || B.schemaVersion !== 7) {
+  console.log('  --   corpus is v' + A.schemaVersion + '/v' + B.schemaVersion +
+              ', so the real-capture v7 cases did not run');
+} else {
+  var realLayers = [];
+  A.tracks.forEach(function (t) {
+    (t.layers || []).forEach(function (l) { realLayers.push(l); });
+  });
+
+  check('every layer in a real v7 capture carries an id',
+        realLayers.length > 0 && realLayers.every(function (l) {
+          return typeof l.id === 'string' && l.id !== '';
+        }), realLayers.length + ' layers');
+
+  // The plugin promises ids are unique within a track. If that ever slips, the
+  // occurrence-qualified keys in matchBy paper over it positionally and the
+  // ambiguity v7 exists to remove comes back without anything reporting it.
+  check('ids are unique within each track, as the plugin promises',
+        (function () {
+          var dup = 0;
+          A.tracks.forEach(function (t) {
+            var seen = Object.create(null);
+            (t.layers || []).forEach(function (l) {
+              if (seen[l.id]) dup++;
+              seen[l.id] = 1;
+            });
+          });
+          return dup === 0;
+        })());
+
+  // Without collisions in the corpus the id key is never doing any work here,
+  // and these cases would pass against a show that could not exercise them.
+  check('the corpus really does have names that collide, so the id key matters',
+        (function () {
+          var shared = 0;
+          A.tracks.forEach(function (t) {
+            var c = Object.create(null);
+            (t.layers || []).forEach(function (l) {
+              var k = (l.groupPath || []).concat([l.name]).join(' / ');
+              c[k] = (c[k] || 0) + 1;
+            });
+            Object.keys(c).forEach(function (k) { if (c[k] > 1) shared += c[k]; });
+          });
+          return shared > 0;
+        })());
+
+  // The payoff, on real records rather than synthesised ones: renaming a layer
+  // whose name a sibling shares still matches, because the id did not move.
+  check('a rename on a real v7 capture reports a change, not a remove plus an add',
+        (function () {
+          var edited = JSON.parse(JSON.stringify(A));
+          var t = edited.tracks.filter(function (x) { return (x.layers || []).length; })[0];
+          t.layers[0].name = 'renamed on a real capture';
+          var f = layerFindings(diff.diffSnapshots(A, edited).nodes);
+          return f.length === 1 && /^changed /.test(f[0]);
+        })());
+}
 
 console.log('\nderived counters');
 // layerCount is derived from `layers`. Comparing it as well would report every

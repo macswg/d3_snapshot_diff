@@ -108,8 +108,9 @@ Reversing any of these will look like a simplification and will be a regression.
     on it.
 11. **A layer is keyed by its v7 `id`, but only when both captures have one.**
     Before v7 a layer had no identity of its own and the best key available was
-    `groupPath` + `name`, which 814 of this show's 1935 layers share with a
-    sibling; one track held three records named `[VID] 250_seek_tvision_a_alpha_ll180`,
+    `groupPath` + `name`, which 881 of this show's 2031 layers share with a
+    sibling -- 43%, re-measured on real v7 captures and unchanged; one track
+    held three records named `[VID] 250_seek_tvision_a_alpha_ll180`,
     two equal in every field down to the media version. Keying a v7 capture
     against a v6 one on `id` matches nothing and reports the whole show removed
     and re-added — 1811 findings against 1786 layers, verified by deliberately
@@ -152,6 +153,15 @@ node tools/selftest.js /path/to/captures
 Cases run against **real captures, not fixtures** — the fields that break are
 the ones nobody thinks to fake. Fixtures appear only where the corpus cannot
 express the state (a census that failed, a dangling trackRef, a trashed track).
+
+**A fixture must state its schema, never inherit the corpus's.** When the corpus
+went from v6 to v7, five whitespace cases began asserting an add-plus-remove that
+a keyed diff correctly no longer produces, and the mixed-pair case started
+comparing real uids against synthesised ones — seven failures, none of them a
+fault in the engine. `asV6()` and `asV7()` exist so a case says which shape it
+means. The real-capture v7 cases are guarded the other way: on a v6 corpus they
+print that they did not run, because silent passes measuring nothing is how the
+census field disarmed two cases once already.
 
 Run with no argument and the suite resolves its own corpus from `LOG_CANDIDATES`
 in `tools/selftest.js` — anything listed in the gitignored `tools/logs.local`,
