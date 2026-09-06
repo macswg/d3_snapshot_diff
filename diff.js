@@ -7,6 +7,10 @@
  * this exists instead of a text diff.
  */
 
+// Beats are floats off the director; compare them with a tolerance so a capture
+// that re-derives 128.00000001 doesn't report a change.
+var EPSILON = 1e-6;
+
 // Fields compared directly on an entity, in display order. Anything not listed
 // is either structural (`layers`, `cues`) or derived (`layerCount`) and would
 // only produce noise -- a layer added already reports itself.
@@ -23,13 +27,50 @@ var LAYER_FIELDS = ['type', 'renderEnable', 'tStart', 'tEnd', 'bStart', 'bEnd',
 var MEDIA_FIELDS = ['name', 'path', 'version', 'hasAudio', 'regionSet'];
 var CUE_FIELDS   = ['isSection', 'note', 'section', 't', 'timecode'];
 
-// Beats are floats off the director; compare them with a tolerance so a capture
-// that re-derives 128.00000001 doesn't report a change.
-var EPSILON = 1e-6;
-
 function sameValue(a, b) {
   if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < EPSILON;
   return a === b;
+}
+
+/* Whitespace a showfile name carries but HTML will not show.
+ *
+ * Layer names are whatever someone typed into Designer, and the corpus has four
+ * that end in a space or a newline. Two of them sit in `999_vis`, where
+ * `[TEXT] B` and `[TEXT] B\n` are two different layers: rendered raw they are
+ * the same row, so removing one reads as a duplicate line and renaming one
+ * reads as nothing at all. Trimming the name is the worse repair -- it collapses
+ * two entities onto one label and hides the edit completely.
+ *
+ * Only labels are marked. Identity keeps the raw string: matching on a marked
+ * name would make `B` and `B\n` differ by a whole symbol rather than by the one
+ * character they actually differ by, turning every dirty name into an add
+ * paired with a remove -- the exact failure the cue tolerance exists to avoid.
+ */
+var WS_MARK = { ' ': '\u2423', '\t': '\u21e5', '\n': '\u23ce', '\r': '\u23ce' };
+
+function markRun(run) {
+  var out = '', ch, i;
+  for (i = 0; i < run.length; i++) {
+    ch = run.charAt(i);
+    // An unlisted whitespace character -- a non-breaking or hair space -- gets
+    // its codepoint rather than a symbol. It is invisible but it is not a plain
+    // space, and lending it the space symbol would name the wrong character.
+    out += WS_MARK[ch] ||
+           ('\\u' + ('000' + run.charCodeAt(i).toString(16)).slice(-4));
+  }
+  return out;
+}
+
+function showWhitespace(s) {
+  if (typeof s !== 'string' || s === '') return s;
+  return s.replace(/\s+/g, function (run, at) {
+    // A single space between words is ordinary; marking those would make every
+    // name unreadable. Mark a run only where HTML would swallow it: against
+    // either end, doubled up, or carrying a tab or a newline.
+    var atEdge = at === 0 || at + run.length === s.length;
+    if (!atEdge && run === ' ') return run;
+    return markRun(run);
+  });
 }
 
 function plural(n, one) { return n + ' ' + one + (n === 1 ? '' : 's'); }
@@ -163,8 +204,7 @@ function matchBy(listA, listB, keyOf) {
 }
 
 function layerKey(l) { return (l.groupPath || []).concat([l.name]).join(' / '); }
-// Media identity is the path; two layers can hold clips with the same display
-// name from different folders. Name is the fallback when path failed to read.
+
 function mediaKey(m) { return m.path || m.name || ''; }
 function cueKey(c) { return String(Math.round((c.beat || 0) * 1000)); }
 
@@ -172,15 +212,20 @@ function diffMedia(a, b) {
   var m = matchBy(a.media, b.media, mediaKey);
   var nodes = [];
   m.added.forEach(function (x) {
-    nodes.push({ kind: 'added', entity: 'media', label: 'media ' + (x.name || x.path), detail: x.path });
+    nodes.push({ kind: 'added', entity: 'media',
+                 label: 'media ' + showWhitespace(x.name || x.path),
+                 detail: showWhitespace(x.path) });
   });
   m.removed.forEach(function (x) {
-    nodes.push({ kind: 'removed', entity: 'media', label: 'media ' + (x.name || x.path), detail: x.path });
+    nodes.push({ kind: 'removed', entity: 'media',
+                 label: 'media ' + showWhitespace(x.name || x.path),
+                 detail: showWhitespace(x.path) });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, MEDIA_FIELDS);
     if (ch.length) {
-      nodes.push({ kind: 'changed', entity: 'media', label: 'media ' + (p.b.name || p.b.path), changes: ch });
+      nodes.push({ kind: 'changed', entity: 'media',
+                   label: 'media ' + showWhitespace(p.b.name || p.b.path), changes: ch });
     }
   });
   return nodes;
@@ -190,16 +235,19 @@ function diffLayers(trackA, trackB) {
   var m = matchBy(trackA.layers, trackB.layers, layerKey);
   var nodes = [];
   m.added.forEach(function (l) {
-    nodes.push({ kind: 'added', entity: 'layer', label: 'layer ' + layerKey(l), detail: l.type });
+    nodes.push({ kind: 'added', entity: 'layer',
+                 label: 'layer ' + showWhitespace(layerKey(l)), detail: l.type });
   });
   m.removed.forEach(function (l) {
-    nodes.push({ kind: 'removed', entity: 'layer', label: 'layer ' + layerKey(l), detail: l.type });
+    nodes.push({ kind: 'removed', entity: 'layer',
+                 label: 'layer ' + showWhitespace(layerKey(l)), detail: l.type });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, LAYER_FIELDS);
     var kids = diffMedia(p.a, p.b);
     if (ch.length || kids.length) {
-      nodes.push({ kind: 'changed', entity: 'layer', label: 'layer ' + layerKey(p.b),
+      nodes.push({ kind: 'changed', entity: 'layer',
+                   label: 'layer ' + showWhitespace(layerKey(p.b)),
                    changes: ch, children: kids });
     }
   });
@@ -210,7 +258,8 @@ function diffCues(trackA, trackB) {
   var m = matchBy(trackA.cues, trackB.cues, cueKey);
   var nodes = [];
   function cueLabel(c) {
-    return 'cue @ beat ' + fmt(c.beat) + (c.note ? ' "' + c.note + '"' : '');
+    return 'cue @ beat ' + fmt(c.beat) +
+           (c.note ? ' "' + showWhitespace(c.note) + '"' : '');
   }
   m.added.forEach(function (c) { nodes.push({ kind: 'added', entity: 'cue', label: cueLabel(c) }); });
   m.removed.forEach(function (c) { nodes.push({ kind: 'removed', entity: 'cue', label: cueLabel(c) }); });
@@ -279,19 +328,19 @@ function diffTracks(snapA, snapB) {
   m.added.forEach(function (t) {
     // Genuinely new only if Before censused the showfile and this was not in it.
     if (!(showA.known && !showA.set[String(t.id)])) { membership.added++; return; }
-    nodes.push({ kind: 'added', entity: 'track', label: 'track ' + t.id,
-                 detail: trackDetail(t) });
+    nodes.push({ kind: 'added', entity: 'track', label: 'track ' + showWhitespace(t.id),
+                 detail: showWhitespace(trackDetail(t)) });
   });
   m.removed.forEach(function (t) {
     if (!(showB.known && !showB.set[String(t.id)])) { membership.removed++; return; }
-    nodes.push({ kind: 'removed', entity: 'track', label: 'track ' + t.id,
-                 detail: trackDetail(t) });
+    nodes.push({ kind: 'removed', entity: 'track', label: 'track ' + showWhitespace(t.id),
+                 detail: showWhitespace(trackDetail(t)) });
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, TRACK_FIELDS);
     var kids = diffCues(p.a, p.b).concat(diffLayers(p.a, p.b));
     if (ch.length || kids.length) {
-      nodes.push({ kind: 'changed', entity: 'track', label: 'track ' + p.b.id,
+      nodes.push({ kind: 'changed', entity: 'track', label: 'track ' + showWhitespace(p.b.id),
                    detail: p.b.trashed ? 'in the trash' : null,
                    changes: ch, children: kids });
     }
@@ -357,8 +406,14 @@ function diffTransports(snapA, snapB) {
   var m = matchBy(snapA.transports, snapB.transports,
                   function (t, i) { return t.name || ('#' + i); });
   var nodes = [];
-  m.added.forEach(function (t) { nodes.push({ kind: 'added', entity: 'transport', label: 'transport ' + t.name }); });
-  m.removed.forEach(function (t) { nodes.push({ kind: 'removed', entity: 'transport', label: 'transport ' + t.name }); });
+  m.added.forEach(function (t) {
+    nodes.push({ kind: 'added', entity: 'transport',
+                 label: 'transport ' + showWhitespace(t.name) });
+  });
+  m.removed.forEach(function (t) {
+    nodes.push({ kind: 'removed', entity: 'transport',
+                 label: 'transport ' + showWhitespace(t.name) });
+  });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, TRANSPORT_FIELDS);
     // The running order of a setlist is showfile state: a reordered show is a
@@ -367,7 +422,8 @@ function diffTransports(snapA, snapB) {
     // the page renders it as one.
     var order = orderDiff(p.a.trackRefs, p.b.trackRefs);
     if (ch.length || order.counts.changed) {
-      nodes.push({ kind: 'changed', entity: 'transport', label: 'transport ' + p.b.name,
+      nodes.push({ kind: 'changed', entity: 'transport',
+                   label: 'transport ' + showWhitespace(p.b.name),
                    changes: ch, order: order.counts.changed ? order : null });
     }
   });
@@ -536,11 +592,20 @@ function mediaReport(snap) {
       // things loaded, and a layer holding none is nothing to load and so
       // contributes no row at all.
       (l.media || []).forEach(function (md) {
+        // Names and paths are marked here for the same reason diff labels are:
+        // the page prints them and HTML eats a trailing space, so a clip named
+        // with one is indistinguishable from the clip without. Nothing in this
+        // report matches on them -- it compares nothing -- so there is no
+        // identity to protect, only a tie-break sort, and a mark is as stable
+        // between runs as the character it stands for.
         out.push({
-          layer: l.name, group: l.groupPath || [], type: l.type,
+          layer: showWhitespace(l.name),
+          group: (l.groupPath || []).map(function (g) { return showWhitespace(g); }),
+          type: l.type,
           renderEnable: l.renderEnable,
           tStart: nul(l.tStart), tEnd: nul(l.tEnd),
-          name: md.name, path: md.path, version: md.version,
+          name: showWhitespace(md.name), path: showWhitespace(md.path),
+          version: md.version,
           hasAudio: md.hasAudio, regionSet: md.regionSet
         });
       });
@@ -556,7 +621,9 @@ function mediaReport(snap) {
     var items = itemsOf(t);
     totals.tracks++;
     totals.media += items.length;
-    return { id: String(t.id), name: t.name || String(t.id),
+    // `id` keeps the raw string -- it is the track's identity and the page
+    // keys rows on it. Only `name`, which is what a reader looks at, is marked.
+    return { id: String(t.id), name: showWhitespace(t.name || String(t.id)),
              lengthInSec: nul(t.lengthInSec), bpm: nul(t.bpm),
              trashed: !!t.trashed, items: items };
   });
@@ -602,15 +669,16 @@ function transportReport(snap) {
       // the show, so it is reported rather than dropped.
       if (!t) {
         missingCount++;
-        return { id: id, name: id, lengthInSec: null, bpm: null,
+        return { id: id, name: showWhitespace(id), lengthInSec: null, bpm: null,
                  trashed: false, missing: true };
       }
-      return { id: id, name: t.name || id, lengthInSec: nul(t.lengthInSec),
+      return { id: id, name: showWhitespace(t.name || id), lengthInSec: nul(t.lengthInSec),
                bpm: nul(t.bpm), trashed: !!t.trashed, missing: false };
     });
     totals.transports++;
     totals.tracks += tracks.length;
-    return { name: tr.name, setlist: tr.setlist, error: nul(tr.error),
+    return { name: showWhitespace(tr.name), setlist: showWhitespace(tr.setlist),
+             error: nul(tr.error),
              trackCount: tracks.length, missingCount: missingCount,
              tracks: tracks };
   });

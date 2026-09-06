@@ -1,2 +1,5 @@
 .DS_Store
 node_modules/
+
+# Machine-specific capture folders for tools/selftest.js -- never committed.
+tools/logs.local

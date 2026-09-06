@@ -255,6 +255,25 @@ Consequences worth knowing:
 - **Media swaps read as remove + add**, not `path: old → new`, because media
   identity *is* the path. A different clip is a different resource, not an
   edited one.
+- **Invisible whitespace in a name is marked in the label.** Layer names are
+  whatever was typed into Designer, and real captures carry names ending in a
+  space or a newline — `999_vis` holds both `[TEXT] B` and `[TEXT] B\n`, which
+  are two different layers. HTML swallows the difference, so removing one used
+  to print a line identical to the one that stayed. A space HTML would collapse
+  now shows as `␣`, a tab as `⇥`, a newline as `⏎`, and any other invisible
+  character as its codepoint, so `\u00a0` is never mistaken for a plain space.
+  An ordinary single space between words is left alone — the rule is "mark what
+  HTML swallows", not "mark every space", so `/a/one two.mov` stays readable.
+  Trimming the name would be the worse repair: it fuses two entities onto one
+  label and hides the edit. Only display text is marked — **identity keeps the
+  raw string**, so the two layers above still diff as two.
+
+  The media inventory and transport info mark the same way, on track, layer,
+  group, media, path, transport and setlist names. They surface more of it than
+  the diff does, because they describe every row rather than only what changed:
+  the July capture holds a clip whose filename *begins* with a space and a layer
+  with a doubled one, neither of which any diff ever reported because neither
+  layer was touched. Track ids are left raw in both — the page keys rows on them.
 - **Derived counters are not compared.** `layerCount` on a track follows from
   `layers`; comparing it as well would report every structural edit twice.
   (`trackCount` *is* compared, at both levels, where it summarises a `trackRefs`

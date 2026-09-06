@@ -10,8 +10,87 @@ var fs = require('fs');
 var path = require('path');
 var diff = require('../diff.js');
 
-var LOGS = process.argv[2] ||
-  path.join(__dirname, '..', '..', 'd3plg_susan_summary', 'example_logs');
+/* Candidate corpora, first that exists wins. The plugin repo next door is the
+ * portable answer; the show machine is where captures actually accumulate. A
+ * default that does not resolve is worse than no default at all -- deploy.sh
+ * warns and ships anyway when the folder is missing, so a dead path silently
+ * turns the gate off, which is the failure this list exists to prevent. */
+/* Machine-specific corpora go in tools/logs.local, one path per line, which is
+ * gitignored and tried first. Nothing identifying belongs in the list below:
+ * this repo is public, and the path to a folder of captures names a client, a
+ * shared drive and an email address before it names a single capture. */
+function localCandidates() {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'logs.local'), 'utf8')
+      .split('\n')
+      .map(function (l) { return l.replace(/^\s+|\s+$/g, ''); })
+      .filter(function (l) { return l && l.charAt(0) !== '#'; });
+  } catch (e) { return []; }
+}
+
+var LOG_CANDIDATES = localCandidates().concat([
+  path.join(__dirname, '..', '..', 'd3plg_susan_summary', 'example_logs')
+]);
+// A candidate counts only if it actually holds captures, and its immediate
+// subfolders are searched too: an archive gets filed into `old_schema/` the day
+// a new schema lands, and a default that resolves to the now-empty parent is the
+// dead-path failure this list exists to prevent, wearing a different hat.
+function capturesIn(dir) {
+  try {
+    return fs.readdirSync(dir).filter(function (f) {
+      return /\.json$/.test(f) && fs.statSync(path.join(dir, f)).size > 0;
+    }).length;
+  } catch (e) { return 0; }
+}
+/* A folder holding exactly one capture is the dangerous case, not the empty one.
+ * The v6 archive lives in old_schema/ and new captures land in the parent beside
+ * it, so the morning the first v7 capture appears the parent holds one file --
+ * too few to diff, so resolution falls through to the archive and the suite
+ * passes without ever reading the v7 file it exists to check. Empty folders are
+ * skipped in silence; a folder skipped while holding captures says so. */
+var skipped = [];
+
+function resolveLogs(dir) {
+  if (!fs.existsSync(dir)) return null;
+  var here = capturesIn(dir);
+  if (here >= 2) return dir;
+  if (here) skipped.push(dir + ' (' + here + ')');
+  var subs = [];
+  try {
+    subs = fs.readdirSync(dir).map(function (f) { return path.join(dir, f); })
+             .filter(function (f) { return fs.statSync(f).isDirectory(); }).sort();
+  } catch (e) { return null; }
+  for (var i = 0; i < subs.length; i++) {
+    var n = capturesIn(subs[i]);
+    if (n >= 2) return subs[i];
+    if (n) skipped.push(subs[i] + ' (' + n + ')');
+  }
+  return null;
+}
+
+// An explicit path is resolved the same way a candidate is. deploy.sh passes one,
+// so letting argv skip the subfolder search would leave the deploy gate with the
+// hole the search exists to close -- and the NOTE below keeps it honest about
+// where it actually ended up.
+var LOGS = null, given = process.argv[2];
+if (given) {
+  LOGS = resolveLogs(given);
+  if (!LOGS) {
+    console.error('no folder with two or more captures at ' + given);
+    skipped.forEach(function (d) { console.error('  saw ' + d + ', too few to diff'); });
+    process.exit(1);
+  }
+} else {
+  for (var cand = 0; cand < LOG_CANDIDATES.length; cand++) {
+    LOGS = resolveLogs(LOG_CANDIDATES[cand]);
+    if (LOGS) break;
+  }
+  if (!LOGS) {
+    console.error('no captures found. Pass a folder: node tools/selftest.js /path/to/logs');
+    console.error('looked in:\n  ' + LOG_CANDIDATES.join('\n  '));
+    process.exit(1);
+  }
+}
 
 var failures = 0;
 function check(name, cond, detail) {
@@ -90,7 +169,12 @@ function withCensus(snap) {
   return copy;
 }
 
-var files = fs.readdirSync(LOGS).filter(function (f) { return /\.json$/.test(f); }).sort();
+// Zero-byte files are skipped, not parsed. The plugin leaves one behind when a
+// capture is interrupted -- there is one in the moose corpus -- and JSON.parse
+// on it throws, taking the whole suite down before a single case runs.
+var files = fs.readdirSync(LOGS).filter(function (f) {
+  return /\.json$/.test(f) && fs.statSync(path.join(LOGS, f)).size > 0;
+}).sort();
 if (files.length < 2) {
   console.error('need at least two .json snapshots in ' + LOGS);
   process.exit(1);
@@ -98,7 +182,11 @@ if (files.length < 2) {
 var A = JSON.parse(fs.readFileSync(path.join(LOGS, files[0]), 'utf8'));
 var B = JSON.parse(fs.readFileSync(path.join(LOGS, files[files.length - 1]), 'utf8'));
 
-console.log('logs: ' + LOGS);
+console.log('logs: ' + LOGS + '  (' + files.length + ' captures)');
+skipped.forEach(function (d) {
+  console.log('NOTE: skipped ' + d + ' -- needs two captures to diff. ' +
+              'Nothing in it is being tested.');
+});
 console.log(files[0] + '  ->  ' + files[files.length - 1] + '\n');
 
 console.log('identity');
@@ -387,6 +475,134 @@ jitter.tracks.forEach(function (t) {
 });
 check('sub-epsilon float drift is not a change',
       diff.diffSnapshots(A, jitter).nodes.length === 0);
+
+console.log('\ninvisible whitespace in showfile names');
+/* Layer names are whatever was typed into Designer, and this corpus has four
+ * that end in a space or a newline. Rendered raw, HTML swallows the difference:
+ * `999_vis` holds both `[TEXT] B` and `[TEXT] B\n`, so removing one printed a
+ * line identical to the one that stayed. Marking is the conservative repair --
+ * trimming would fuse the two entities onto a single label and lose the edit. */
+function layerLabels(nodes) {
+  return findings(nodes).filter(function (f) { return /^\w+ layer /.test(f); });
+}
+function withLayerName(snap, name) {
+  var copy = JSON.parse(JSON.stringify(snap));
+  var t = copy.tracks.filter(function (x) { return (x.layers || []).length; })[0];
+  if (t) t.layers[0].name = name;
+  return copy;
+}
+// The base name is clean, so the renamed side is the only one that should come
+// back marked -- and the two lines must not read the same.
+var wsBase = withLayerName(A, 'pro be');
+var MARKS = /[\u2423\u21e5\u23ce]/;
+
+[['\u0020pro be', 'a leading space'],
+ ['pro be\u0020', 'a trailing space'],
+ ['pro be\n', 'a trailing newline'],
+ ['pro be\t', 'a trailing tab'],
+ ['pro  be', 'a doubled inner space']].forEach(function (c) {
+  var got = layerLabels(diff.diffSnapshots(wsBase, withLayerName(A, c[0])).nodes);
+  var dirty = got.filter(function (f) { return MARKS.test(f); });
+  var clean = got.filter(function (f) { return !MARKS.test(f); });
+  check(c[1] + ' is marked, not swallowed',
+        got.length === 2 && dirty.length === 1 && clean.length === 1 &&
+        dirty[0] !== clean[0], got.join(' | '));
+});
+
+// A single space between words is ordinary. Marking those would put a symbol
+// between every word of every layer name in the show.
+check('an ordinary inner space is left alone',
+      layerLabels(diff.diffSnapshots(wsBase, withLayerName(A, 'other name')).nodes)
+        .every(function (f) { return !MARKS.test(f); }));
+
+// Invisible but not a space: lending it the space symbol would name the wrong
+// character, so an unlisted whitespace codepoint is printed as its code.
+check('a non-breaking space is named by codepoint, not shown as a space',
+      layerLabels(diff.diffSnapshots(wsBase, withLayerName(A, 'pro be\u00a0')).nodes)
+        .some(function (f) { return /\\u00a0/.test(f) && !MARKS.test(f); }));
+
+/* The line that must not be crossed. Marking is a display concern; identity
+ * stays raw. Keyed on a marked name, `B` and `B\n` would differ by a symbol
+ * instead of by the one character they actually differ by -- which is the same
+ * class of mistake as matching cues on an exact beat. */
+var twoLayers = JSON.parse(JSON.stringify(A));
+var wt = twoLayers.tracks.filter(function (t) { return (t.layers || []).length; })[0];
+if (!wt) {
+  check('a track with layers exists to test against', false);
+} else {
+  var twin = JSON.parse(JSON.stringify(wt.layers[0]));
+  wt.layers[0].name = '[TEXT] B';
+  twin.name = '[TEXT] B\n';
+  wt.layers.push(twin);
+  wt.layerCount = wt.layers.length;
+  check('two names differing only by whitespace stay two entities',
+        diff.diffSnapshots(twoLayers, JSON.parse(JSON.stringify(twoLayers))).nodes.length === 0);
+
+  // ...and they must print as two distinguishable lines, which is the whole point.
+  var dropped = JSON.parse(JSON.stringify(twoLayers));
+  dropped.tracks.filter(function (t) { return t.id === wt.id; })[0].layers.pop();
+  var dl = layerLabels(diff.diffSnapshots(twoLayers, dropped).nodes);
+  check('removing one of them names which one went',
+        dl.length === 1 && /\u23ce/.test(dl[0]), dl.join(' | '));
+}
+
+// The single-snapshot tabs print the same showfile strings and had the same
+// blind spot: the corpus holds a clip whose filename *begins* with a space, and
+// a layer with a doubled one, neither of which the diff ever surfaced because
+// neither layer changed. These reports compare nothing, so there is no identity
+// to protect here -- only the track `id`, which the page keys rows on.
+var wsMedia = JSON.parse(JSON.stringify(A));
+var wmt = wsMedia.tracks.filter(function (t) { return (t.layers || []).length; })[0];
+if (!wmt || !(wmt.layers[0].media || []).length) {
+  check('a track with media exists to test against', false);
+} else {
+  wmt.name = 'dirty name\n';
+  wmt.layers[0].name = 'dirty layer ';
+  wmt.layers[0].groupPath = ['dirty group '];
+  wmt.layers[0].media[0].name = ' dirty.mov';
+  wmt.layers[0].media[0].path = '/a/one two.mov ';
+  var mrep = diff.mediaReport(wsMedia);
+  var mrow = mrep.tracks.filter(function (t) { return t.id === String(wmt.id); })[0];
+  // Found by name, never by index: the report sorts items by start time, so the
+  // layer mutated above is not the one that lands first.
+  var mit = mrow.items.filter(function (i) { return /^dirty layer/.test(i.layer); })[0];
+  check('the media inventory marks the track, layer, group, media and path',
+        mit && /\u23ce$/.test(mrow.name) && /\u2423$/.test(mit.layer) &&
+        /\u2423$/.test(mit.group[0]) &&
+        /^\u2423/.test(mit.name) && /\u2423$/.test(mit.path),
+        JSON.stringify(mit ? [mrow.name, mit.layer, mit.group[0], mit.name, mit.path]
+                           : 'no row for the mutated layer'));
+  // The rule is "mark what HTML swallows", not "mark every space". A path with
+  // an ordinary space inside it renders exactly as it reads, so marking it
+  // would only make a legible name harder to read.
+  check('a single space inside a path is left readable',
+        mit && mit.path.indexOf('one two.mov') !== -1, mit && mit.path);
+  check('the track id stays raw, because the page keys rows on it',
+        mrow.id === String(wmt.id) && !/[\u2423\u21e5\u23ce]/.test(mrow.id), mrow.id);
+  // Marking is cosmetic and must not move a count.
+  check('marking does not change the inventory totals',
+        mrep.totals.media === diff.mediaReport(A).totals.media &&
+        mrep.totals.tracks === diff.mediaReport(A).totals.tracks,
+        JSON.stringify(mrep.totals));
+}
+
+var wsTr = JSON.parse(JSON.stringify(A));
+if (!(wsTr.transports || []).length) {
+  check('a transport exists to test against', false);
+} else {
+  wsTr.transports[0].setlist = 'dirty setlist ';
+  wsTr.transports[0].name = 'dirty transport ';
+  var ref = (wsTr.transports[0].trackRefs || [])[0];
+  wsTr.tracks.forEach(function (t) { if (String(t.id) === String(ref)) t.name = 'dirty track '; });
+  var trep = diff.transportReport(wsTr).transports[0];
+  check('transport info marks the transport, its setlist and its track names',
+        /\u2423$/.test(trep.name) && /\u2423$/.test(trep.setlist) &&
+        (!ref || /\u2423$/.test(trep.tracks[0].name)),
+        JSON.stringify([trep.name, trep.setlist, trep.tracks[0] && trep.tracks[0].name]));
+  check('and leaves the track id it resolves refs against alone',
+        !ref || trep.tracks[0].id === String(ref),
+        trep.tracks[0] && trep.tracks[0].id);
+}
 
 console.log('\nderived counters');
 // layerCount is derived from `layers`. Comparing it as well would report every

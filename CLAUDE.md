@@ -77,15 +77,29 @@ Reversing any of these will look like a simplification and will be a regression.
    it, so it belongs on the Before/After slots where all three tabs can see it.
    Giving it a section would put the environment above the showfile edits, which
    is backwards — you open these captures to see what changed in the show.
-9. **Media and transport info need one snapshot, not two.** They read After when
-   there is one and Before otherwise (`reportSource` in `index.html`), so a
-   single capture is enough to look at the show you have. Preferring After is
-   what keeps the answer stable as files arrive instead of switching which
-   capture the tab describes. The tally says `from Before` only when it read
-   Before — After is the documented default, and labelling it every time is
-   noise, while silence on the surprising case would let someone attribute the
-   numbers to the wrong capture. Gating these tabs on both slots, as the diff
-   must be, blanks a tab that already has everything it needs.
+9. **A label marks whitespace the browser would swallow; identity does not.**
+    Layer names come from Designer and the corpus has four ending in a space or
+    a newline — `999_vis` holds `[TEXT] B` and `[TEXT] B\n` as separate layers,
+    which rendered raw are the same row, so removing one printed a duplicate.
+    `showWhitespace()` marks only edge, doubled and non-space runs, so ordinary
+    single spaces stay readable, and unlisted invisibles get their codepoint
+    rather than borrowing `␣`. Trimming looks tidier and is a regression: it
+    collapses two entities onto one label. Marking the *key* is the same
+    regression from the other side — it would make `B` and `B\n` differ by a
+    symbol instead of by one character and split every dirty name into an add
+    plus a remove. Both single-snapshot reports mark too, and they catch more
+    than the diff can: they describe every row, so a dirty name on a layer
+    nobody edited still shows. Their track `id` stays raw — the page keys rows
+    on it.
+10. **Media and transport info need one snapshot, not two.** They read After
+    when there is one and Before otherwise (`reportSource` in `index.html`), so
+    a single capture is enough to look at the show you have. Preferring After is
+    what keeps the answer stable as files arrive instead of switching which
+    capture the tab describes. The tally says `from Before` only when it read
+    Before — After is the documented default, and labelling it every time is
+    noise, while silence on the surprising case would let someone attribute the
+    numbers to the wrong capture. Gating these tabs on both slots, as the diff
+    must be, blanks a tab that already has everything it needs.
 
 ## Tests
 
@@ -96,6 +110,27 @@ node tools/selftest.js /path/to/captures
 Cases run against **real captures, not fixtures** — the fields that break are
 the ones nobody thinks to fake. Fixtures appear only where the corpus cannot
 express the state (a census that failed, a dangling trackRef, a trashed track).
+
+Run with no argument and the suite resolves its own corpus from `LOG_CANDIDATES`
+in `tools/selftest.js` — anything listed in the gitignored `tools/logs.local`,
+one path per line, then the plugin repo next door — and exits rather than testing
+nothing. **Machine-specific paths belong in `logs.local`, never in the list.**
+This repo is public, and the path to a capture folder names a client, a shared
+drive and an email address before it names a single capture. Zero-byte files are
+skipped: an interrupted capture leaves one behind, and parsing it takes down the
+suite before a case runs. `tools/deploy.sh` still uses its own `LOGS` default and
+warns rather than resolving that list.
+
+Resolution looks one level down and needs **two** captures before it accepts a
+folder, because the v6 archive sits in `old_schema/` while new captures land in
+the parent beside it. **A folder holding exactly one capture is the dangerous
+case, not the empty one**: the morning the first v7 capture appears, the parent
+holds one file, resolution falls through to the archive, and the suite passes
+green without ever reading the v7 file it exists to check. So an empty folder is
+skipped in silence and a folder skipped *while holding captures* prints a NOTE
+naming it. An explicit path argument is resolved the same way — `deploy.sh`
+passes one, and letting argv skip the search would leave the deploy gate with the
+hole the search closes.
 
 **Point `LOGS` at real v5 captures when deploying.** Two tests silently stopped
 testing anything when the census field landed, and only failed once the suite
@@ -115,6 +150,6 @@ live page until it serves the new version, because the build API lags the CDN.
 ## The other half
 
 The plugin that writes these captures is a separate repo,
-`d3plg_susan_summary`. **The two ship together.** This viewer reads v5 only and
+`d3plg_susan_summary`. **The two ship together.** This viewer reads v6 only and
 refuses anything else, so a schema change means releasing both. See that repo's
 `CLAUDE.md` for the capture side.
