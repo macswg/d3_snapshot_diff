@@ -649,15 +649,24 @@ if (!wt) {
 // neither layer changed. These reports compare nothing, so there is no identity
 // to protect here -- only the track `id`, which the page keys rows on.
 var wsMedia = JSON.parse(JSON.stringify(A));
-var wmt = wsMedia.tracks.filter(function (t) { return (t.layers || []).length; })[0];
-if (!wmt || !(wmt.layers[0].media || []).length) {
+// Search for a layer that carries media rather than taking the first layer of
+// the first non-empty track: a show that opens with a Bitmap or Notch layer
+// failed this case outright, reporting "no media" for a capture holding
+// thousands of clips.
+var wmt = null, wml = null;
+wsMedia.tracks.some(function (t) {
+  wml = (t.layers || []).filter(function (l) { return (l.media || []).length; })[0] || null;
+  if (wml) wmt = t;
+  return !!wml;
+});
+if (!wml) {
   check('a track with media exists to test against', false);
 } else {
   wmt.name = 'dirty name\n';
-  wmt.layers[0].name = 'dirty layer ';
-  wmt.layers[0].groupPath = ['dirty group '];
-  wmt.layers[0].media[0].name = ' dirty.mov';
-  wmt.layers[0].media[0].path = '/a/one two.mov ';
+  wml.name = 'dirty layer ';
+  wml.groupPath = ['dirty group '];
+  wml.media[0].name = ' dirty.mov';
+  wml.media[0].path = '/a/one two.mov ';
   var mrep = diff.mediaReport(wsMedia);
   var mrow = mrep.tracks.filter(function (t) { return t.id === String(wmt.id); })[0];
   // Found by name, never by index: the report sorts items by start time, so the
