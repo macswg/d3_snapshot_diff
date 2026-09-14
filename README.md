@@ -10,6 +10,12 @@ it just reads two of the plugin's JSON captures and renders a semantic tree
 diff between them, so you can see what actually changed in a show over time
 without combing through raw JSON.
 
+No Designer running? The
+[project snapshot extractor](https://macswg.github.io/d3_proj_analyzer/)
+([repo](https://github.com/macswg/d3_proj_analyzer)) builds the same v7 snapshot
+from a saved `.d3` project archive, in the browser, so a project file can be
+diffed against a plugin capture or another project file.
+
 ![The viewer comparing two captures](screenshot.png)
 
 *(The screenshot predates the tabs; it shows the Changes tab only.)*
