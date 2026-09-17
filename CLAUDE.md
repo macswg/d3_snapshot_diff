@@ -20,6 +20,7 @@ introduce a bundler, a framework, or an npm dependency.
 ```
 index.html        UI, all three tabs, rendering and file loading. All the CSS.
 diff.js           The engine. No DOM access — usable from node.
+vendor/d3extract.js  .d3 reader. Verbatim copy from d3_proj_analyzer.
 tools/selftest.js Regression checks against real captures.
 tools/deploy.sh   Version bump, commit, push, wait for Pages.
 ```
@@ -37,6 +38,10 @@ tools/deploy.sh   Version bump, commit, push, wait for Pages.
   `// tStart is null on a layer the director could not place, so sorting it as 0
   would claim a position the capture does not have` is the standard.
 - **`diff.js` never touches the DOM.** The self-test requires it.
+- **`vendor/d3extract.js` is not ours.** It is a byte-for-byte copy of
+  `../d3_proj_analyzer/d3extract.js`, exempt from the ES5 rule, and the
+  self-test fails on drift. Change it upstream and `cp` it over. Never edit it
+  here.
 - Everything from a snapshot goes through `esc()` before it lands in an HTML
   string. Track names and media paths come from a showfile and are not trusted.
 - Do not hand-edit the `#ver` span in the footer. `tools/deploy.sh` rewrites it.
@@ -129,6 +134,15 @@ Reversing any of these will look like a simplification and will be a regression.
     numbers to the wrong capture. Gating these tabs on both slots, as the diff
     must be, blanks a tab that already has everything it needs.
 
+13. **A `.d3` goes through JSON before it reaches the diff.** `readArchive` in
+    `index.html` writes the extractor's snapshot with `D3Extract.toJson` and
+    parses it back. Handing over the object as built looks like a saved step
+    and is two bugs. Its `uid` is a `BigInt`, which `JSON.stringify` throws on.
+    Its keys are in construction order, so cue tags compared as strings differ
+    from a capture's sorted ones: 543 phantom changes on the reference show. The
+    round-trip also makes a dropped archive identical to the file the extractor
+    page downloads.
+
 ## Tests
 
 ```
@@ -144,9 +158,11 @@ in `tools/selftest.js` — anything listed in the gitignored `tools/logs.local`,
 one path per line, then the plugin repo next door — and exits rather than testing
 nothing. **Machine-specific paths belong in `logs.local`, never in the list.**
 This repo is public, and the path to a capture folder names a client, a shared
-drive and an email address before it names a single capture. Zero-byte files are
-skipped: an interrupted capture leaves one behind, and parsing it takes down the
-suite before a case runs. `tools/deploy.sh` still uses its own `LOGS` default and
+drive and an email address before it names a single capture. The `.d3` cases
+look for an archive in the same folders and in
+`../d3_proj_analyzer/d3 project to analyze example/`, and print a NOTE when
+there is none. Zero-byte files are skipped: an interrupted capture leaves one
+behind, and parsing it takes down the suite before a case runs. `tools/deploy.sh` still uses its own `LOGS` default and
 warns rather than resolving that list.
 
 Resolution looks one level down and needs **two** captures before it accepts a

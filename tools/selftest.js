@@ -1232,5 +1232,84 @@ check('a capture with no system block does not throw and reports no build',
         return e.build === null && e.project.all.length === 0 && e.totals.set === 0;
       })());
 
+console.log('\nproject archives (.d3 read by the vendored extractor)');
+/* The page reads a .d3 through vendor/d3extract.js, a verbatim copy of the one in
+ * d3_proj_analyzer. A copy that drifts is a page quietly disagreeing with the
+ * extractor it links to, so the two are compared whenever the repo is next door. */
+var VENDORED = path.join(__dirname, '..', 'vendor', 'd3extract.js');
+var UPSTREAM = path.join(__dirname, '..', '..', 'd3_proj_analyzer', 'd3extract.js');
+if (fs.existsSync(UPSTREAM)) {
+  check('the vendored extractor is byte-identical to d3_proj_analyzer\'s',
+        fs.readFileSync(VENDORED, 'utf8') === fs.readFileSync(UPSTREAM, 'utf8'),
+        'cp ' + UPSTREAM + ' vendor/');
+} else {
+  console.log('NOTE: no d3_proj_analyzer checkout next door -- vendored copy not checked for drift.');
+}
+
+/* An archive is 150 MB of real show data and is never committed, so it is found
+ * the way captures are: beside any listed corpus, or in the analyzer's example
+ * folder. */
+function findArchive() {
+  var dirs = localCandidates().concat([
+    LOGS,
+    path.join(__dirname, '..', '..', 'd3_proj_analyzer', 'd3 project to analyze example')
+  ]);
+  for (var i = 0; i < dirs.length; i++) {
+    try {
+      var hit = fs.readdirSync(dirs[i]).filter(function (f) {
+        return /\.d3$/i.test(f) && fs.statSync(path.join(dirs[i], f)).size > 0;
+      }).sort()[0];
+      if (hit) return path.join(dirs[i], hit);
+    } catch (e) { /* not there */ }
+  }
+  return null;
+}
+
+var archivePath = findArchive();
+if (!archivePath) {
+  console.log('NOTE: no .d3 archive found -- the page\'s archive path is untested.');
+} else {
+  console.log('archive: ' + archivePath);
+  var X = require(VENDORED);
+  var raw = fs.readFileSync(archivePath);
+  var abuf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length);
+  var opts = { fileName: path.basename(archivePath), capturedAt: '2026-01-01T00:00:00+00:00' };
+  var built = X.buildSnapshot(abuf, opts);
+  // What index.html does with it: through the writer and back.
+  var fromArchive = JSON.parse(X.toJson(built));
+
+  check('the extractor writes a schema the page accepts',
+        fromArchive.schemaVersion === 6 || fromArchive.schemaVersion === 7,
+        'v' + fromArchive.schemaVersion);
+
+  // The reason the page round-trips at all. Handed over as built, the uid BigInt
+  // makes JSON.stringify throw inside the diff, and construction-order keys make
+  // every tagged cue differ from a sorted copy of itself.
+  var asBuilt = null;
+  try { asBuilt = diff.diffSnapshots(fromArchive, built); } catch (e) { asBuilt = e; }
+  check('the snapshot as built is not diffable, which is why the page round-trips it',
+        asBuilt instanceof Error || asBuilt.nodes.length > 0);
+
+  var twice = diff.diffSnapshots(fromArchive, JSON.parse(X.toJson(X.buildSnapshot(abuf, opts))));
+  check('an archive read twice reports nothing',
+        twice.nodes.length === 0, JSON.stringify(twice.counts));
+
+  // Every census and switch the archive lacks has to arrive as null, never as
+  // an empty value -- the distinctions the diff is built on.
+  check('the census is read from the archive, not left null',
+        Array.isArray(fromArchive.showfile.trackIds) && fromArchive.showfile.trackIds.length > 0);
+  var againstCapture = diff.diffSnapshots(A, fromArchive);
+  check('switches the archive cannot hold are declined with a note, not reported removed',
+        againstCapture.notes.filter(function (n) { return /option switches/.test(n); }).length === 2 &&
+        snapshotFields(againstCapture.nodes).every(function (f) {
+          return !Object.prototype.hasOwnProperty.call(A.system.options.project.values,
+                                                       f.replace(/ \(machine\)$/, ''));
+        }),
+        JSON.stringify(snapshotFields(againstCapture.nodes)));
+  check('the reports build from an archive',
+        diff.mediaReport(fromArchive).totals.media > 0 &&
+        diff.transportReport(fromArchive).totals.transports > 0);
+}
+
 console.log('\n' + (failures ? failures + ' failing' : 'all passing'));
 process.exit(failures ? 1 : 0);

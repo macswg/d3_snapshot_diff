@@ -300,10 +300,12 @@
     clicking either box or dropping a <code>.json</code> snapshot on it. The
     captures are written by the
     <a href="https://github.com/macswg/d3plg_susan_summary" target="_blank"
-       rel="noopener">Susan&nbsp;Summary</a> disguise plugin, or pulled from a saved
-    <code>.d3</code> project without Designer by the
+       rel="noopener">Susan&nbsp;Summary</a> disguise plugin. A saved
+    <code>.d3</code> project works too, dropped straight on either box — it is read
+    the way the
     <a href="https://macswg.github.io/d3_proj_analyzer/" target="_blank"
-       rel="noopener">project snapshot extractor</a>.
+       rel="noopener">project snapshot extractor</a> reads it, so it compares
+    against a capture or another project.
     Everything below is what changed from Before to After:
     <span class="a">+ added</span>, <span class="r">− removed</span>,
     <span class="c">~ changed</span>. Files are read in your browser and never
@@ -315,13 +317,13 @@
   </div>
   <div class="slot">
     <label>Before</label>
-    <div class="drop" id="dropA" data-slot="a">Choose or drop a snapshot…</div>
-    <input type="file" id="fileA" accept=".json,application/json">
+    <div class="drop" id="dropA" data-slot="a">Choose or drop a snapshot or .d3…</div>
+    <input type="file" id="fileA" accept=".json,.d3,application/json">
   </div>
   <div class="slot">
     <label>After</label>
-    <div class="drop" id="dropB" data-slot="b">Choose or drop a snapshot…</div>
-    <input type="file" id="fileB" accept=".json,application/json">
+    <div class="drop" id="dropB" data-slot="b">Choose or drop a snapshot or .d3…</div>
+    <input type="file" id="fileB" accept=".json,.d3,application/json">
   </div>
 </header>
 
@@ -353,7 +355,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.2.1</span>
+  <span id="ver">v2.3.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -419,11 +421,103 @@ function loadFolder(files) {
   document.getElementById('pickDir').textContent = note;
 }
 
+/* A .d3 project archive is turned into a snapshot here, in the tab, by the same
+ * extractor the project snapshot extractor page runs. It is loaded on the first
+ * archive rather than with the page: it is not ES5 (it needs BigInt for the
+ * 64-bit UIDs), so an old browser should lose this one feature with a message,
+ * not the whole page to a syntax error. */
+var EXTRACTOR = 'vendor/d3extract.js';
+var extractorWaiting = null;
+
+function withExtractor(done) {
+  if (window.D3Extract) { done(null, window.D3Extract); return; }
+  if (extractorWaiting) { extractorWaiting.push(done); return; }
+  extractorWaiting = [done];
+  function settle(err) {
+    var waiting = extractorWaiting;
+    extractorWaiting = null;
+    waiting.forEach(function (fn) { fn(err, window.D3Extract); });
+  }
+  var s = document.createElement('script');
+  s.src = EXTRACTOR;
+  // onload fires even when the file failed to parse, so the global is the only
+  // proof it ran.
+  s.onload = function () {
+    settle(window.D3Extract ? null :
+      new Error('this browser cannot run the project extractor — load a .json snapshot instead'));
+  };
+  s.onerror = function () {
+    s.parentNode.removeChild(s);
+    settle(new Error('could not load ' + EXTRACTOR + ' — it has to sit beside index.html'));
+  };
+  document.head.appendChild(s);
+}
+
+/* Round-tripped through the extractor's own JSON writer rather than handed to
+ * the diff as built. The object in memory is not what a file holds: its uid is
+ * a BigInt, which JSON.stringify in diff.js throws on, and its keys are in
+ * construction order, so cue tags compared as strings differ from a capture's
+ * sorted ones -- 543 phantom tag changes on the reference show. Going through
+ * the text makes a dropped .d3 exactly the file the extractor page downloads. */
+function readArchive(file, done) {
+  withExtractor(function (err, X) {
+    if (err) { done(err); return; }
+    file.arrayBuffer().then(function (buffer) {
+      // The parse is synchronous; let "reading project" paint before it starts.
+      setTimeout(function () {
+        try {
+          var snap = X.buildSnapshot(buffer, {
+            fileName: file.name,
+            capturedAt: X.localIso(new Date(file.lastModified || Date.now()))
+          });
+          done(null, JSON.parse(X.toJson(snap)));
+        } catch (e) {
+          done(e && e.name === 'ParseError'
+            ? new Error('could not read this archive: ' + e.message + '. It may be from a ' +
+                        'Designer version the extractor has not seen, or not a complete .d3 file.')
+            : e);
+        }
+      }, 20);
+    }, done);
+  });
+}
+
+// Bumped on every load into a slot. An archive takes a moment to parse, so a
+// file dropped on the same slot meanwhile must win even though it finishes first.
+var loading = { a: 0, b: 0 };
+
 function load(file, slot, drop) {
+  var ticket = ++loading[slot];
+  var archive = /\.d3$/i.test(file.name);
+
+  if (archive) {
+    var was = { html: drop.innerHTML, filled: drop.classList.contains('filled') };
+    drop.classList.add('filled');
+    drop.innerHTML = esc(file.name) + '<span class="stamp">reading project…</span>';
+    readArchive(file, function (err, data) {
+      if (ticket !== loading[slot]) return;
+      if (err) {
+        // Put back whatever the slot still holds, or it claims a file it never took.
+        drop.innerHTML = was.html;
+        if (!was.filled) drop.classList.remove('filled');
+        fail(file.name + ': ' + err.message);
+        return;
+      }
+      accept(data);
+    });
+    return;
+  }
+
   var reader = new FileReader();
   reader.onload = function () {
+    if (ticket !== loading[slot]) return;
+    try { accept(JSON.parse(reader.result)); }
+    catch (e) { fail(file.name + ': ' + e.message); }
+  };
+  reader.readAsText(file);
+
+  function accept(data) {
     try {
-      var data = JSON.parse(reader.result);
       // v6 and v7 only, deliberately. A v1 log has a top-level `transport` with tracks
       // inline rather than referenced, so identity matching cannot line up at
       // all. v4 lines up but lies quietly: its track ids are display names
@@ -449,13 +543,19 @@ function load(file, slot, drop) {
       // number the capture reports, so it has to stay visible whichever tab is
       // open. The drop zones sit above the tab bar, which is what makes this
       // one line do the job a fourth tab would have.
-      drop.innerHTML = esc(file.name) + '<span class="stamp">' +
+      //
+      // An archive stores neither a project name nor a capture time, so both are
+      // stand-ins there, and the tooltip says so: a project line that differs
+      // from a plugin capture's is the file name talking, not a rename.
+      drop.innerHTML = esc(file.name) + '<span class="stamp"' +
+        (archive ? ' title="Read from a .d3 archive, which stores no project name or ' +
+                   'capture time: the project is the file name and the time is when ' +
+                   'the file was last saved."' : '') + '>' +
         esc(data.project || '?') + ' · ' + esc(data.capturedAt || '') +
         ' · ' + esc(buildOf(data)) + '</span>';
       render();
     } catch (e) { fail(file.name + ': ' + e.message); }
-  };
-  reader.readAsText(file);
+  }
 }
 
 /* The Designer build, short enough for a header line. Falls back to '—' rather

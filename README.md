@@ -10,11 +10,12 @@ it just reads two of the plugin's JSON captures and renders a semantic tree
 diff between them, so you can see what actually changed in a show over time
 without combing through raw JSON.
 
-No Designer running? The
+No Designer running? Drop a saved `.d3` project archive on either slot instead
+of a snapshot. It is read in the tab by the same code as the
 [project snapshot extractor](https://macswg.github.io/d3_proj_analyzer/)
-([repo](https://github.com/macswg/d3_proj_analyzer)) builds the same v7 snapshot
-from a saved `.d3` project archive, in the browser, so a project file can be
-diffed against a plugin capture or another project file.
+([repo](https://github.com/macswg/d3_proj_analyzer)), so a project file can be
+diffed against a plugin capture or another project file without exporting JSON
+first. See [Project archives](#project-archives).
 
 ![The viewer comparing two captures](screenshot.png)
 
@@ -217,6 +218,44 @@ On transport info it matches transport names, setlists and track names.
 In all three, a row kept only to place a match further down is dimmed: it is
 context, not a hit. The count is of actual hits. Escape clears.
 
+## Project archives
+
+Either slot takes a `.d3` as well as a `.json`. The archive is parsed in the
+browser by `vendor/d3extract.js` and never uploaded; the reference show (148 MB)
+reads in about a second.
+
+The copy in `vendor/` is **verbatim** from
+[d3_proj_analyzer](https://github.com/macswg/d3_proj_analyzer), and the
+self-test fails if it differs from a checkout of that repo next door. Update it
+with a plain `cp`, never by editing it here. It is exempt from this repo's ES5
+rule for that reason, and because it cannot be ES5: the 64-bit layer UIDs need
+`BigInt`. It is loaded when the first archive arrives rather than with the page,
+so a browser without `BigInt` loses this one feature with a message rather than
+the whole page to a syntax error. It has to sit beside `index.html`.
+
+The snapshot is passed through the extractor's own JSON writer and parsed back
+before the diff sees it, so a dropped `.d3` is exactly the file the extractor
+page would download. That round-trip is required. The object as built has a
+`BigInt` uid, which `JSON.stringify` throws on, and its keys are in construction
+order, so cue tags compared as strings differ from a capture's sorted ones: the
+reference show reported 543 tag changes that did not exist.
+
+An archive does not hold everything a capture does, and the diff says so rather
+than guessing:
+
+- **Option switches** are not packed into a `.d3`. They arrive as
+  `values: null`, so the pair gets the usual note and no switch lines.
+- **The project name** is the file name, and **the capture time** is when the
+  file was last saved. The slot's tooltip says this. Against a plugin capture, a
+  `project` change usually means the file was named differently.
+- **Licence, custom release and RenderStream** are `null` in an archive, so
+  against a plugin capture they read `— → Full` and so on. That is the
+  extractor's data, not a change to the show.
+
+**Choose folder…** still picks only `.json` files. The extractor writes its JSON
+next to the archive by default, so a folder holding both would often compare a
+project with its own export.
+
 ## Logs on a shared drive
 
 Google Drive for desktop mounts Drive as an ordinary folder
@@ -409,6 +448,7 @@ of `diff.js`.
 ```
 index.html        UI, all three tabs, rendering and file loading. All the CSS.
 diff.js           The engine. No DOM access — usable from node.
+vendor/d3extract.js  The .d3 reader, copied verbatim from d3_proj_analyzer.
 tools/selftest.js Regression checks against real captures.
 tools/deploy.sh   Version bump, commit, push, wait for Pages.
 ```
