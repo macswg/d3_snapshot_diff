@@ -256,6 +256,26 @@ than guessing:
 next to the archive by default, so a folder holding both would often compare a
 project with its own export.
 
+## Export
+
+**Export JSON**, at the right of the toolbar on the Changes tab, downloads the
+whole diff as one file for a script or a model to read — named for the two
+capture times, so a folder of exports sorts the way the captures do.
+
+It exports everything, whatever the search box holds: an export that quietly
+honoured a forgotten query would hand someone half a diff labelled as all of it.
+
+The file is self-describing. Alongside the tree (`changes`), the tally
+(`counts`), the withheld-findings `notes` and the `summary` roll-up, it carries
+the two captures' file names, times and builds, and an `about` list of reading
+rules. Those are there because the tree on its own misleads a new reader in
+exactly the places this page took care over: a track leaving a setlist is not a
+deletion, a missing `from` on an option switch means *at its default* rather
+than null, and `B` and `B⏎` are two layers. Pasting the file into a model
+without them invites it to re-derive the wrong answer from correct data.
+
+The format is tagged `d3-snapshot-diff/1`; change the tag if the shape changes.
+
 ## Logs on a shared drive
 
 Google Drive for desktop mounts Drive as an ordinary folder

@@ -700,6 +700,60 @@ function summarize(result) {
   return { entities: entities, fields: fields, hotspots: hotspots };
 }
 
+/* The whole diff as one self-describing document, for a reader that is not
+ * this page -- a script, or a model asked to explain what changed.
+ *
+ * The tree goes out whole and unfiltered, whatever the search box says: an
+ * export that quietly honoured a forgotten query would hand someone half a
+ * diff labelled as all of it.
+ *
+ * `about` carries the reading rules because the tree on its own misleads in
+ * exactly the places this engine took a day to get right. A reader who is not
+ * told that a setlist drop is not a deletion, or that a missing `from` is a
+ * default rather than a null, will re-derive the wrong answer from correct
+ * data. The notes ride along for the same reason the page shows them.
+ *
+ * `sources` is the caller's {a, b} file names; `generatedAt` is passed in so
+ * the engine stays deterministic and the self-test can compare two runs.
+ */
+var EXPORT_FORMAT = 'd3-snapshot-diff/1';
+
+var EXPORT_ABOUT = [
+  'Semantic diff of two susan_summary captures of a disguise d3 showfile: before (A) and after (B).',
+  'Each node in `changes` is {kind, entity, label, detail?, changes?, order?, children?}. kind is added (only in after), removed (only in before) or changed (in both, with differing fields). Unchanged entities are omitted.',
+  'Nodes nest: a changed track holds its changed cues and layers; a changed layer holds its changed media. `counts` tallies every node at every depth.',
+  'Entities are matched by identity, never by position: tracks by id, layers by v7 id when both captures carry one on every layer (otherwise group path + name), media by path, cues by beat within 0.005 beats.',
+  'A field change is {field, from, to}. A missing `from` or `to` means that capture did not record the field -- for an option switch, it was at its default. That is not the same as null, which is a recorded empty value.',
+  'Cue `tags` changes carry from/to as JSON strings of the whole tag list.',
+  'Track added/removed means the showfile itself changed. A track that merely joined or left a setlist is reported as a running-order line on its transport instead, and `notes` says how many were held back that way.',
+  'A transport `order` is a line diff of its setlist: entries are {kind: same|moved|added|removed, id: track id, a: 0-based position in before or null, b: 0-based position in after or null}.',
+  'Labels mark whitespace a browser would swallow: a trailing space, a doubled space or an embedded newline shows as a visible symbol (␣ space, ⇥ tab, ⏎ newline, or a \\uXXXX codepoint for any other invisible). Field values stay raw, except a layer `group` change, which is marked like a label. Two labels differing only by such a mark are genuinely different entities.',
+  'The snapshot node carries environment changes: the Designer build (`d3 build`) and project or machine option switches.',
+  '`summary` is the same roll-up the page shows: per-entity tallies, the most-changed fields, and top-level nodes ranked by how much sits beneath them.'
+];
+
+function exportDiff(result, snapA, snapB, sources, generatedAt) {
+  sources = sources || {};
+  function side(snap, file) {
+    var b = snap.system && snap.system.build;
+    return { file: file || null, project: snap.project || null,
+             capturedAt: snap.capturedAt || null,
+             schemaVersion: snap.schemaVersion,
+             build: (b && b.version) || null };
+  }
+  return {
+    format: EXPORT_FORMAT,
+    generatedAt: generatedAt || null,
+    about: EXPORT_ABOUT,
+    before: side(snapA, sources.a),
+    after: side(snapB, sources.b),
+    counts: result.counts,
+    notes: result.notes || [],
+    summary: summarize(result),
+    changes: result.nodes
+  };
+}
+
 /* One capture's media: every track it holds, and what each one loads, in the
  * order it plays. Nothing here is a comparison -- it answers "what is
  * programmed", which the diff deliberately never says.
@@ -913,6 +967,6 @@ function systemReport(snap) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
                      mediaReport: mediaReport, transportReport: transportReport,
-                     systemReport: systemReport,
+                     systemReport: systemReport, exportDiff: exportDiff,
                      matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
 }

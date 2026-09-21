@@ -25,9 +25,12 @@ tools/selftest.js Regression checks against real captures.
 tools/deploy.sh   Version bump, commit, push, wait for Pages.
 ```
 
-`diff.js` exports four entry points under CommonJS and as page globals:
+`diff.js` exports its entry points under CommonJS and as page globals:
 `diffSnapshots(a, b)`, `summarize(result)`, `mediaReport(snap)`,
-`transportReport(snap)`.
+`transportReport(snap)`, `systemReport(snap)`, and
+`exportDiff(result, a, b, names, generatedAt)` behind the Export JSON button.
+The export's `about` list is its reading rules for a model or script; when one
+of the distinctions below changes, that list changes with it.
 
 ## House style, which is not negotiable
 

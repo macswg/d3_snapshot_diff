@@ -1391,5 +1391,45 @@ if (!archivePath) {
         diff.transportReport(fromArchive).totals.transports > 0);
 }
 
+console.log('\nexport');
+// The export is read by something other than this page, so what matters is what
+// survives JSON.stringify -- not what the in-memory object looks like.
+var exported = JSON.parse(JSON.stringify(
+  diff.exportDiff(real, A, B, { a: files[0], b: files[files.length - 1] }, 'fixed')));
+
+check('the export carries the whole tree, not a filtered view of it',
+      (function () {
+        var n = 0;
+        (function walk(list) {
+          list.forEach(function (x) { n++; if (x.children) walk(x.children); });
+        })(exported.changes);
+        var c = exported.counts;
+        return n === c.added + c.removed + c.changed && n > 0;
+      })(), JSON.stringify(exported.counts));
+
+check('it names both captures and says how to read itself',
+      exported.format === 'd3-snapshot-diff/1' &&
+      exported.before.file === files[0] && exported.after.file === files[files.length - 1] &&
+      exported.about.length > 0 && exported.summary && exported.summary.entities,
+      JSON.stringify({ before: exported.before, after: exported.after }));
+
+// The legend promises a missing `from` means "at its default" and is not null.
+// JSON.stringify drops undefined on its own, so this pins that behaviour: a
+// later tidy-up that filled absences with null would silently turn "never set"
+// into "set to nothing" for every reader of the file.
+var newSwitch = withOptions(A, 'project', function (s) { s.values.zzExportProbe = '1'; });
+var probe = JSON.parse(JSON.stringify(
+  diff.exportDiff(diff.diffSnapshots(A, newSwitch), A, newSwitch, {}, 'fixed')));
+check('a switch the Before file omits exports with no `from`, not a null one',
+      (function () {
+        var snap = probe.changes.filter(function (n) { return n.entity === 'snapshot'; })[0];
+        var c = snap && snap.changes.filter(function (x) { return x.field === 'zzExportProbe'; })[0];
+        return c && !('from' in c) && c.to === '1';
+      })(), JSON.stringify(probe.changes[0]));
+
+check('the export is deterministic, so two runs of one pair compare equal',
+      JSON.stringify(diff.exportDiff(real, A, B, {}, 'fixed')) ===
+      JSON.stringify(diff.exportDiff(diff.diffSnapshots(A, B), A, B, {}, 'fixed')));
+
 console.log('\n' + (failures ? failures + ' failing' : 'all passing'));
 process.exit(failures ? 1 : 0);
