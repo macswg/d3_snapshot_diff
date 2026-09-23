@@ -5,6 +5,8 @@ between them. Or choose a folder of
 [Susan Summary](https://github.com/macswg/d3plg_susan_summary) exports and the
 two most recent are compared.
 
+Works with Designer v34 and up.
+
 `susan_summary` is a [disguise](https://www.disguise.one/) d3 plugin that
 periodically captures a JSON snapshot of the showfile — transports, tracks,
 layers, media and cues — to disk. A `.d3` archive is read in the tab by the same
