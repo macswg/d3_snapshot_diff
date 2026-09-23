@@ -6,10 +6,12 @@ are easy to get wrong.
 
 ## What this is
 
-A browser viewer for `susan_summary` v6 and v7 JSON snapshots of a disguise d3
-showfile. Three tabs: a semantic diff of two captures, a media inventory of one,
-and a per-transport view of one. Every tab carries a header line naming the
-Designer build each capture came from.
+A browser viewer for disguise d3 showfiles: a `.d3` project archive, or a
+`susan_summary` v6 or v7 JSON snapshot. Drop one to analyze it, two to diff
+them, or choose a folder of `susan_summary` exports to diff the latest pair.
+Four tabs: a semantic diff of two captures, and a media inventory, a
+per-transport view and a system view of one. Every tab carries a header line
+naming the Designer build each capture came from.
 
 No build step, no dependencies, no server. `index.html` opened from disk works
 identically to the hosted copy. That constraint is load-bearing — do not

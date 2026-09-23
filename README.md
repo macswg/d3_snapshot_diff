@@ -1,21 +1,17 @@
 # Showfile snapshot diff
 
-Visual diff for two `susan_summary` snapshot logs — what changed in the showfile
-between one capture and the next.
+Drop a disguise d3 `.d3` project file to analyze it, or two to see what changed
+between them. Or choose a folder of
+[Susan Summary](https://github.com/macswg/d3plg_susan_summary) exports and the
+two most recent are compared.
 
 `susan_summary` is a [disguise](https://www.disguise.one/) d3 plugin that
 periodically captures a JSON snapshot of the showfile — transports, tracks,
-layers, media and cues — to disk. This repo doesn't produce those snapshots;
-it just reads two of the plugin's JSON captures and renders a semantic tree
-diff between them, so you can see what actually changed in a show over time
-without combing through raw JSON.
-
-No Designer running? Drop a saved `.d3` project archive on either slot instead
-of a snapshot. It is read in the tab by the same code as the
-[project snapshot extractor](https://macswg.github.io/d3_proj_analyzer/)
-([repo](https://github.com/macswg/d3_proj_analyzer)), so a project file can be
-diffed against a plugin capture or another project file without exporting JSON
-first. See [Project archives](#project-archives).
+layers, media and cues — to disk. A `.d3` archive is read in the tab by the same
+code as the [project snapshot extractor](https://macswg.github.io/d3_proj_analyzer/)
+([repo](https://github.com/macswg/d3_proj_analyzer)), so project files and
+plugin captures mix freely: either slot takes either kind. See
+[Project archives](#project-archives).
 
 ![The viewer comparing two captures](screenshot.png)
 
@@ -28,14 +24,17 @@ step and no server. Use it hosted at **https://macswg.github.io/d3_snapshot_diff
 or open `index.html` locally straight from disk — both work identically since
 nothing leaves the browser.
 
-Pick a **Before** and an **After** (click or drag), and read the tree. That's
-the whole thing.
-
-**Choose folder…** does it in one step: point it at a captures directory and it
-loads the two most recent snapshots, previous into Before and latest into After.
-Order comes from the timestamp at the head of the filename
-(`2026-07-18_20-17-27_…`), falling back to the file's own date for names without
-one — the toolbar says how many were ordered that way.
+- **One file** — drop a `.d3` (or an exported `.json`) on either box. The
+  Media report, Transport info and System info tabs describe it; they read After
+  when there is one and Before otherwise.
+- **Two files** — one on **Before**, one on **After**. The Changes tab shows
+  what changed between them.
+- **A folder of exports** — **Choose folder…** and point it at the directory
+  Susan Summary writes to. It loads the two most recent `.json` snapshots,
+  previous into Before and latest into After. Order comes from the timestamp at
+  the head of the filename (`2026-07-18_20-17-27_…`), falling back to the file's
+  own date for names without one — the toolbar says how many were ordered that
+  way. The folder picker reads `.json` only; drop `.d3` files on the boxes.
 
 ## Reading the output
 

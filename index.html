@@ -301,19 +301,13 @@
 <header>
   <h1>disguise showfile snapshot diff</h1>
   <p class="how">
-    Choose the folder your snapshots are saved in and the two most recent are
-    compared automatically — or set <b>Before</b> and <b>After</b> yourself by
-    clicking either box or dropping a <code>.json</code> snapshot on it. The
-    captures are written by the
+    Drop a <code>.d3</code> project file on <b>Before</b> or <b>After</b> to
+    analyze it, or one on each to see what changed between them. Or choose a
+    folder of
     <a href="https://github.com/macswg/d3plg_susan_summary" target="_blank"
-       rel="noopener">Susan&nbsp;Summary</a> disguise plugin. A saved
-    <code>.d3</code> project works too, dropped straight on either box — it is read
-    the way the
-    <a href="https://macswg.github.io/d3_proj_analyzer/" target="_blank"
-       rel="noopener">project snapshot extractor</a> reads it, so it compares
-    against a capture or another project.
-    Everything below is what changed from Before to After:
-    <span class="a">+ added</span>, <span class="r">− removed</span>,
+       rel="noopener">Susan&nbsp;Summary</a> exports and the two most recent are
+    compared. An exported <code>.json</code> drops on either box the same way.
+    Changes read <span class="a">+ added</span>, <span class="r">− removed</span>,
     <span class="c">~ changed</span>. Files are read in your browser and never
     uploaded.
   </p>
@@ -363,7 +357,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.4.0</span>
+  <span id="ver">v2.5.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
