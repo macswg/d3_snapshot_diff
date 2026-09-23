@@ -15,9 +15,7 @@ code as the [project snapshot extractor](https://macswg.github.io/d3_proj_analyz
 plugin captures mix freely: either slot takes either kind. See
 [Project archives](#project-archives).
 
-![The viewer comparing two captures](screenshot.png)
-
-*(The screenshot predates the tabs; it shows the Changes tab only.)*
+![The viewer comparing two captures of a demo show](screenshot.png)
 
 ## Use it
 
