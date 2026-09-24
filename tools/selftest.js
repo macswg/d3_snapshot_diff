@@ -1123,6 +1123,60 @@ check('a snapshot with no tracks returns empty structures',
 check('an entirely empty snapshot does not throw',
       (function () { return diff.mediaReport({}).totals.tracks === 0; })());
 
+console.log('\ntags & notes');
+/* The media report's sibling, asked of the cues. Its claims: nothing a person
+ * wrote is lost, nothing blank is listed, and what is left out is counted. */
+var crep = diff.cueReport(A);
+var allCues = 0, written = 0;
+A.tracks.forEach(function (t) {
+  (t.cues || []).forEach(function (c) {
+    allCues++;
+    if ((c.tags || []).length || (c.note !== null && c.note !== undefined && c.note !== '')) written++;
+  });
+});
+check('every track in the capture is reported exactly once, in capture order',
+      crep.tracks.map(function (t) { return t.id; }).join('|') ===
+      A.tracks.map(function (t) { return String(t.id); }).join('|'));
+check('every cue with a tag or note is listed, and every other cue is counted as bare',
+      crep.totals.cues === written && crep.totals.cues + crep.totals.bare === allCues,
+      JSON.stringify(crep.totals) + ' vs ' + written + ' of ' + allCues);
+check('the capture has cues worth listing', crep.totals.cues > 0,
+      'a corpus with no tags or notes makes every case above vacuous');
+check('totals add up to what is in the tree',
+      crep.totals.cues === crep.tracks.reduce(function (n, k) { return n + k.items.length; }, 0) &&
+      crep.totals.bare === crep.tracks.reduce(function (n, k) { return n + k.bare; }, 0) &&
+      crep.totals.tags === crep.tracks.reduce(function (n, k) {
+        return n + k.items.reduce(function (m, c) { return m + c.tags.length; }, 0);
+      }, 0));
+check('cues are in beat order',
+      crep.tracks.every(function (k) {
+        return k.items.every(function (c, i) {
+          return i === 0 || c.beat === null || (k.items[i - 1].beat !== null && k.items[i - 1].beat <= c.beat);
+        });
+      }));
+
+// Fixture: the corpus holds no cue without a beat, and no note with a quote in
+// it or an edge space, so those states are built rather than hoped for.
+var ct = JSON.parse(JSON.stringify(trackWithCues(A)));
+ct.cues = [
+  { beat: null, t: null, note: 'unplaced', tags: [], section: 0, isSection: false, timecode: null },
+  { beat: 8, t: 4, note: '', tags: [], section: 1, isSection: true, timecode: null },
+  { beat: 2, t: 1, note: 'say "hi" ', tags: [{ type: 'tc', text: '01:00:00:00' }],
+    section: 0, isSection: true, timecode: null }
+];
+var cr = diff.cueReport({ tracks: [ct] }).tracks[0];
+check('an empty note is no note, so a cue with only that is bare',
+      cr.bare === 1 && cr.items.length === 2, JSON.stringify(cr));
+check('a cue with no beat sorts last',
+      cr.items[0].beat === 2 && cr.items[1].beat === null,
+      JSON.stringify(cr.items.map(function (c) { return c.beat; })));
+check('a note keeps its quotes and marks its trailing space',
+      cr.items[0].note === 'say "hi"␣', JSON.stringify(cr.items[0].note));
+check('the report ignores transports entirely',
+      JSON.stringify(diff.cueReport({ tracks: A.tracks })) === JSON.stringify(crep));
+check('an entirely empty snapshot does not throw',
+      (function () { return diff.cueReport({}).totals.tracks === 0; })());
+
 console.log('\ntransport info');
 /* The other half of what the media report used to conflate. Here the same track
  * legitimately appears under every setlist holding it -- the question is what a

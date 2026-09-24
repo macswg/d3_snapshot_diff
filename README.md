@@ -25,7 +25,7 @@ or open `index.html` locally straight from disk — both work identically since
 nothing leaves the browser.
 
 - **One file** — drop a `.d3` (or an exported `.json`) on either box. The
-  Media report, Transport info and System info tabs describe it; they read After
+  Media report, Tags & notes, Transport info and System info tabs describe it; they read After
   when there is one and Before otherwise.
 - **Two files** — one on **Before**, one on **After**. The Changes tab shows
   what changed between them.
@@ -181,9 +181,30 @@ Two other differences from the diff tab:
 `mediaReport(snap)` builds it, is DOM-free like the rest of `diff.js`, and is
 covered by the self-test.
 
+## Tags & notes
+
+The third tab: every cue tag and cue note in **one snapshot**, by track. The same
+single-capture rules as the media report — After when loaded, otherwise Before;
+every track once, in capture order; collapsed until opened; the trash badged.
+
+One row per cue that carries a tag or a note: the cue's time, its tags, and its
+note. Tags keep their type as a word (`cue 027.000.001`, `tc 00:00:00:00`)
+because a cue tag and a timecode tag look alike at a glance and mean different
+things. Hovering the time gives the exact beat, the cue's timecode and its
+section. Rows are in beat order, with a cue that has no beat last.
+
+A cue with **neither a tag nor a note is not listed** — it is a position with
+nothing written on it, and a quarter of the reference show's cues are that.
+They are counted in the header instead (`226 cues with neither, not listed`), so
+a track that reads empty is not mistaken for a track with no cues. An empty note
+counts as no note.
+
+`cueReport(snap)` builds it, is DOM-free like the rest of `diff.js`, and is
+covered by the self-test.
+
 ## Transport info
 
-The third tab: what each transport is loaded with. A section per transport —
+The fourth tab: what each transport is loaded with. A section per transport —
 its setlist, and the tracks on it **in running order**.
 
 Deliberately **no media**. A setlist is a running order, and 1,700 clip rows
@@ -217,9 +238,10 @@ contains "whiskey". Track titles inside a running order are searchable too,
 folded or not.
 
 On the media report it matches track names, filenames, versions and layer names.
+On tags & notes it matches track names, tag types and text, notes and timecodes.
 On transport info it matches transport names, setlists and track names.
 
-In all three, a row kept only to place a match further down is dimmed: it is
+In each, a row kept only to place a match further down is dimmed: it is
 context, not a hit. The count is of actual hits. Escape clears.
 
 ## Project archives
@@ -396,7 +418,7 @@ Before and After slots beside the project and the capture time:
 moose_reviews_sphere_update · 2026-07-24T08:46:37-07:00 · r33.2.2_msg/main-branch, rev 253484
 ```
 
-The slots sit above the tab bar, so the build stays visible on all three tabs.
+The slots sit above the tab bar, so the build stays visible on every tab.
 It qualifies every number below it — which is the whole reason it is a header
 line rather than a tab of its own.
 
@@ -472,7 +494,7 @@ of `diff.js`.
 ## Layout
 
 ```
-index.html        UI, all three tabs, rendering and file loading. All the CSS.
+index.html        UI, every tab, rendering and file loading. All the CSS.
 diff.js           The engine. No DOM access — usable from node.
 vendor/d3extract.js  The .d3 reader, copied verbatim from d3_proj_analyzer.
 tools/selftest.js Regression checks against real captures.
@@ -527,6 +549,22 @@ DOM-free:
 It reads `snap.tracks` and never looks at `transports`, so every track appears
 exactly once and `totals.media` is the media in the capture rather than a sum
 over setlists.
+
+`cueReport(snap)` builds the tags & notes tab from a single snapshot, and is
+likewise DOM-free:
+
+```js
+{
+  tracks: [ { id, name, lengthInSec, bpm, trashed, bare, items: [
+    { beat, t, timecode, section, isSection, note, tags: [ { type, text } ] } ] } ],
+  totals: { tracks, cues, notes, tags, bare }
+}
+```
+
+`items` holds only cues with a tag or a non-empty note, sorted by beat with
+nulls last; `bare` counts the rest, per track and in total, so
+`cues + bare` is every cue in the capture. Notes and tag text are marked with
+`showWhitespace` like every other name the page prints.
 
 `transportReport(snap)` builds the transport tab from a single snapshot, and is
 likewise DOM-free:
@@ -606,10 +644,9 @@ automatic transport in it at all.
   way to show surrounding context the way `diff -U` does.
 - Only two snapshots at a time. A folder-wide timeline ("show me this project
   across the week") would need a different UI and is not built.
-- The media report and transport info read **one snapshot**. Neither marks what
+- The media report, tags & notes and transport info read **one snapshot**. Neither marks what
   changed since the other — deliberately, since the tree already does
   comparison, but "which versions moved since yesterday" is a fair thing to want
   and is not answerable from the media tab today.
-- `screenshot.png` is out of date: it predates the tabs and the v5 work.
 - Narrow viewports are unverified. The media report's fixed column widths assume
   a desktop-width window.

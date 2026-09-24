@@ -830,6 +830,68 @@ function mediaReport(snap) {
   return { tracks: tracks, totals: totals };
 }
 
+/* Every cue tag and note in one capture, by track and in playing order. A
+ * sibling of mediaReport, flat for the same reason: what a cue says does not
+ * depend on which setlist plays the track, so listing it once per transport
+ * would repeat it without adding anything.
+ *
+ * Returns {tracks:[{id, name, lengthInSec, bpm, trashed, items:[CUE], bare}],
+ *          totals:{tracks, cues, notes, tags, bare}}
+ * where CUE = {beat, t, timecode, section, isSection, note, tags:[{type, text}]}.
+ *
+ * A cue carrying neither a tag nor a note is left out and counted in `bare`
+ * instead. It is a position with nothing written on it, and a quarter of the
+ * reference show's cues are that; listing them would bury the ones that say
+ * something. Counting them keeps the omission visible, so a track that reads
+ * empty is not mistaken for a track with no cues.
+ */
+function cueReport(snap) {
+  snap = snap || {};
+
+  function nul(v) { return v === undefined ? null : v; }
+
+  // A null beat has no place on the timeline, so it goes last, as an unplaced
+  // layer does in the media report. `t` breaks ties so two cues on one beat keep
+  // a stable order between runs.
+  function place(c) { return c.beat === null ? Infinity : c.beat; }
+  function byPlace(x, y) {
+    return place(x) - place(y) || (x.t === null ? 0 : x.t) - (y.t === null ? 0 : y.t);
+  }
+
+  var totals = { tracks: 0, cues: 0, notes: 0, tags: 0, bare: 0 };
+  var tracks = (snap.tracks || []).map(function (t) {
+    var items = [], bare = 0;
+    (t.cues || []).forEach(function (c) {
+      var tags = (c.tags || []).map(function (g) {
+        // Marked like layer names: tag text is typed in Designer and printed
+        // here, and a trailing space would otherwise vanish on the page.
+        return { type: nul(g.type), text: showWhitespace(g.text === null || g.text === undefined
+                                                         ? '' : String(g.text)) };
+      });
+      // An empty note is Designer's "no note", not a note of nothing.
+      var note = c.note === null || c.note === undefined || c.note === ''
+        ? null : showWhitespace(String(c.note));
+      if (!tags.length && note === null) { bare++; return; }
+      if (note !== null) totals.notes++;
+      totals.tags += tags.length;
+      items.push({ beat: nul(c.beat), t: nul(c.t), timecode: nul(c.timecode),
+                   section: nul(c.section), isSection: !!c.isSection,
+                   note: note, tags: tags });
+    });
+    items.sort(byPlace);
+    totals.tracks++;
+    totals.cues += items.length;
+    totals.bare += bare;
+    // `id` raw, `name` marked -- the same split as mediaReport, for the same
+    // reason: the page keys rows on the id.
+    return { id: String(t.id), name: showWhitespace(t.name || String(t.id)),
+             lengthInSec: nul(t.lengthInSec), bpm: nul(t.bpm),
+             trashed: !!t.trashed, items: items, bare: bare };
+  });
+
+  return { tracks: tracks, totals: totals };
+}
+
 /* What each transport has loaded: its setlist and the tracks on it, in running
  * order. The other half of what the media report used to conflate -- there the
  * question is "what is programmed", here it is "what is this transport playing",
@@ -966,7 +1028,8 @@ function systemReport(snap) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
-                     mediaReport: mediaReport, transportReport: transportReport,
+                     mediaReport: mediaReport, cueReport: cueReport,
+                     transportReport: transportReport,
                      systemReport: systemReport, exportDiff: exportDiff,
                      matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
 }

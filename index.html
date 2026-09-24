@@ -256,6 +256,22 @@
      dimmed and labelled rather than dropped. */
   .mitem.off .mn { color: var(--dim); }
 
+  /* Tags & notes. The media row's grid with its own columns: a clock, the
+     tags, and the note taking what is left, since the note is the part a
+     person wrote and the part most often cut short. */
+  .citem {
+    display: grid; gap: 8px; padding: 0 4px;
+    grid-template-columns: 7ch minmax(0, 30ch) minmax(0, 1fr);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+  .citem > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .citem:hover { background: #22262e; }
+  .citem .ct { color: var(--dim); text-align: right; }
+  .citem .cg { color: var(--ch-fg); }
+  /* The tag type is a word, not a colour: `cue` and `tc` look alike at a
+     glance and mean different things. */
+  .citem .tg i { font-style: normal; color: var(--dim); margin-right: 4px; }
+
   /* Transport report. A running order is a running order, so its rows are the
      tree's .oline rather than a third kind of line -- only the trailing meta is
      new, and .grow is scoped per block on this page rather than global. */
@@ -342,6 +358,7 @@
 <nav id="tabs">
   <button type="button" class="tab on" data-tab="changes">Changes</button>
   <button type="button" class="tab" data-tab="media">Media report</button>
+  <button type="button" class="tab" data-tab="cues">Tags &amp; notes</button>
   <button type="button" class="tab" data-tab="transports">Transport info</button>
   <button type="button" class="tab" data-tab="system">System info</button>
 </nav>
@@ -363,6 +380,7 @@
 <main>
   <div id="out"><p class="hint">Pick two snapshots to compare.</p></div>
   <div id="media" hidden></div>
+  <div id="cues" hidden></div>
   <div id="transports" hidden></div>
   <div id="system" hidden></div>
 </main>
@@ -370,7 +388,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.6.0</span>
+  <span id="ver">v2.7.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -585,9 +603,13 @@ function buildOf(snap) {
   return (b && b.version) || '—';
 }
 
+// Quotes too, not just the tag characters: the page puts track names, media
+// paths and cue notes into title="…" attributes, and a note typed with a double
+// quote in it would otherwise end the attribute and write the rest as markup.
 function esc(s) {
   return String(s === null || s === undefined ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function fail(msg) {
   var el = document.getElementById('err');
@@ -662,17 +684,25 @@ function countMatches(nodes, path) {
   return n;
 }
 
-// Escape for regex AFTER esc(), so the pattern and the haystack have been
-// through the same entity mapping and a query containing < or & still lines up.
+/* Matches are found in the raw text and each piece is escaped on its own.
+ * Matching after esc() instead lets a term land inside an entity: once quotes
+ * escape, searching "t" finds the t in every &quot; and splits it with a
+ * <mark>, which prints the entity as garbage. One alternation, longest term
+ * first, rather than a pass per term -- a second pass would match inside the
+ * first pass's <mark> tags for the same reason. */
 function markup(text) {
-  var safe = esc(text);
-  if (!query) return safe;
-  query.split(/\s+/).forEach(function (t) {
-    if (!t) return;
-    var pat = esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    safe = safe.replace(new RegExp(pat, 'gi'), '<mark>$&</mark>');
-  });
-  return safe;
+  var raw = String(text === null || text === undefined ? '' : text);
+  if (!query) return esc(raw);
+  var terms = query.split(/\s+/).filter(function (t) { return t; })
+    .sort(function (a, b) { return b.length - a.length; })
+    .map(function (t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
+  if (!terms.length) return esc(raw);
+  var re = new RegExp(terms.join('|'), 'gi'), out = '', last = 0, m;
+  while ((m = re.exec(raw)) !== null) {
+    out += esc(raw.slice(last, m.index)) + '<mark>' + esc(m[0]) + '</mark>';
+    last = re.lastIndex;
+  }
+  return out + esc(raw.slice(last));
 }
 
 /* Running order ------------------------------------------------------------
@@ -869,17 +899,17 @@ function wrapAll(tracks) {
  * because a media row matched shows just those rows and dims its name, the same
  * bargain the tree makes with .node.context. Matches open the block, since a hit
  * you cannot see is not a hit. */
-function filterTracks(tracks) {
+function filterTracks(tracks, hayOf) {
   var out = [], n = 0;
   tracks.forEach(function (t, i) {
     var path = trackHay(t);
     if (hitsText(path)) {
       n++;
-      t.items.forEach(function (it) { if (hitsText(path + ' ' + itemHay(it))) n++; });
+      t.items.forEach(function (it) { if (hitsText(path + ' ' + hayOf(it))) n++; });
       out.push({ track: t, items: t.items, pos: i + 1, context: false, open: true });
       return;
     }
-    var kept = t.items.filter(function (it) { return hitsText(path + ' ' + itemHay(it)); });
+    var kept = t.items.filter(function (it) { return hitsText(path + ' ' + hayOf(it)); });
     if (kept.length) {
       n += kept.length;
       out.push({ track: t, items: kept, pos: i + 1, context: true, open: true });
@@ -915,10 +945,100 @@ function paintMedia() {
     return;
   }
 
-  var f = filterTracks(lastReport.tracks);
+  var f = filterTracks(lastReport.tracks, itemHay);
   count.textContent = f.hits ? plural(f.hits, 'match') : 'no matches';
   out.innerHTML = f.hits
     ? renderReport(f.list)
+    : '<p class="empty">Nothing matches \u201c' + esc(query) + '\u201d.</p>';
+}
+
+/* Tags & notes -------------------------------------------------------------
+ * Every cue that carries a tag or a note, per track, in playing order. Built on
+ * the media report's blocks -- same fold, same search bargain -- because it is
+ * the same question asked of a different column: what has been written into
+ * this show, and where.
+ */
+function cueHay(c) {
+  return (plain(c.note) + ' ' + c.tags.map(function (g) {
+    return plain(g.type) + ' ' + plain(g.text);
+  }).join(' ') + ' ' + plain(c.timecode)).toLowerCase();
+}
+
+function renderCue(c) {
+  // Beat, timecode and section go in the title: each is exact where the clock
+  // rounds to the second, and none earns a column on a row that is read for
+  // what it says rather than where it sits.
+  var where = [];
+  if (c.beat !== null) where.push('beat ' + fmt(c.beat));
+  if (c.timecode !== null) where.push('tc ' + c.timecode);
+  if (c.section !== null) where.push('section ' + c.section);
+  var tags = c.tags.map(function (g) {
+    return '<span class="tg"><i>' + esc(plain(g.type)) + '</i>' + markup(g.text) + '</span>';
+  }).join(' ');
+  var tagText = c.tags.map(function (g) { return plain(g.type) + ' ' + plain(g.text); }).join(', ');
+  return '<div class="citem">' +
+    '<span class="ct" title="' + esc(where.join(' · ')) + '">' + esc(clock(c.t)) + '</span>' +
+    '<span class="cg" title="' + esc(tagText) + '">' + tags + '</span>' +
+    '<span class="cn" title="' + esc(plain(c.note)) + '">' + markup(c.note) + '</span></div>';
+}
+
+function renderCueTrack(w) {
+  var t = w.track;
+  var meta = [];
+  if (t.lengthInSec !== null) meta.push(clock(t.lengthInSec));
+  if (t.bpm !== null) meta.push(t.bpm + ' bpm');
+  meta.push(plural(w.items.length, 'cue'));
+
+  var html = '<details class="order mtrack' + (w.context ? ' context' : '') + '"' +
+    (w.open ? ' open' : '') + '>' +
+    '<summary><span class="tnum">' + w.pos + '</span>' +
+    '<span class="tname">' + markup(t.name) + '</span>' +
+    (t.trashed ? '<span class="r trash">in the trash</span>' : '') +
+    '<span class="grow of">' + esc(meta.join(' · ')) + '</span></summary>' +
+    '<div class="lines">';
+  html += w.items.length
+    ? w.items.map(renderCue).join('')
+    : '<div class="note">No tags or notes on this track.</div>';
+  return html + '</div></details>';
+}
+
+function paintCues() {
+  var out = document.getElementById('cues');
+  var count = document.getElementById('matches');
+  count.textContent = '';
+
+  if (!lastCues) {
+    out.innerHTML = '<p class="hint">Load a snapshot to list its cue tags and notes. ' +
+                    'One is enough — this tab describes a single capture.</p>';
+    return;
+  }
+  if (!lastCues.tracks.length) {
+    out.innerHTML = '<p class="empty">This snapshot holds no tracks.</p>';
+    return;
+  }
+
+  // The bare count sits in the header rather than the tally: it qualifies the
+  // list, saying why a track with cues can read as having none.
+  var bare = lastCues.totals.bare;
+  function head(n) {
+    return '<section class="tp"><div class="tphead">' +
+      '<span class="tpname">Tags &amp; notes by track</span>' +
+      '<button type="button" class="tpx">expand all</button>' +
+      '<span class="grow of">' + plural(n, 'track') +
+      (bare ? ' · ' + plural(bare, 'cue') + ' with neither, not listed' : '') +
+      '</span></div>';
+  }
+
+  if (!query) {
+    var all = wrapAll(lastCues.tracks);
+    out.innerHTML = head(all.length) + all.map(renderCueTrack).join('') + '</section>';
+    return;
+  }
+
+  var f = filterTracks(lastCues.tracks, cueHay);
+  count.textContent = f.hits ? plural(f.hits, 'match') : 'no matches';
+  out.innerHTML = f.hits
+    ? head(f.list.length) + f.list.map(renderCueTrack).join('') + '</section>'
     : '<p class="empty">Nothing matches \u201c' + esc(query) + '\u201d.</p>';
 }
 
@@ -1241,6 +1361,7 @@ function renderSummary(result) {
 // searching re-renders from the held result rather than re-running the engine.
 // Same for the report, which walks every layer of every track.
 var lastResult = null, lastReport = null, lastTransports = null, lastSystem = null;
+var lastCues = null;
 // Which slot the media, transport and system tabs are describing, 'a' or 'b'.
 var reportSource = null;
 // The System tab hides switches at their default until asked; a fresh capture
@@ -1261,6 +1382,7 @@ function render() {
   reportSource = snaps.b ? 'b' : (snaps.a ? 'a' : null);
   var only = reportSource ? snaps[reportSource] : null;
   lastReport = only ? mediaReport(only) : null;
+  lastCues = only ? cueReport(only) : null;
   lastTransports = only ? transportReport(only) : null;
   lastSystem = only ? systemReport(only) : null;
   systemExpanded = false;
@@ -1297,6 +1419,7 @@ function render() {
 var PLACEHOLDER = {
   changes: 'Search changes… (name, field, value)',
   media: 'Search media… (track, file, version)',
+  cues: 'Search cues… (track, tag, note)',
   transports: 'Search transports… (transport, setlist, track)',
   system: 'Search switches… (name, value)'
 };
@@ -1314,6 +1437,7 @@ function setTab(name) {
   }
   document.getElementById('out').hidden = !changes;
   document.getElementById('media').hidden = tab !== 'media';
+  document.getElementById('cues').hidden = tab !== 'cues';
   document.getElementById('transports').hidden = tab !== 'transports';
   document.getElementById('system').hidden = tab !== 'system';
   // The summary and the notes describe the diff, so they belong to its tab.
@@ -1326,6 +1450,7 @@ function setTab(name) {
 
   var m = lastReport ? lastReport.totals : null;
   var t = lastTransports ? lastTransports.totals : null;
+  var q = lastCues ? lastCues.totals : null;
   // Name the slot only when it is Before. After is the documented default, so
   // labelling it every time is noise; reading Before is the surprising case and
   // silence there would let someone attribute the numbers to the wrong capture.
@@ -1335,6 +1460,9 @@ function setTab(name) {
     changes ? changeTally :
     tab === 'media' ? (m
       ? '<b>' + m.tracks + '</b> tracks &nbsp; <b>' + m.media + '</b> media' + from : '') :
+    tab === 'cues' ? (q
+      ? '<b>' + q.cues + '</b> cues &nbsp; <b>' + q.notes + '</b> notes &nbsp; <b>' +
+        q.tags + '</b> tags' + from : '') :
     tab === 'transports' ? (t
       ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks +
         '</b> tracks' + from : '') :
@@ -1347,6 +1475,7 @@ function setTab(name) {
  * not re-diff. */
 function paint() {
   if (tab === 'media') { paintMedia(); return; }
+  if (tab === 'cues') { paintCues(); return; }
   if (tab === 'transports') { paintTransports(); return; }
   if (tab === 'system') { paintSystem(); return; }
 
@@ -1384,8 +1513,8 @@ wire('dropB', 'fileB', 'b');
   });
 
   // Delegated, because the report is redrawn on every keystroke and a listener
-  // bound per section would be re-bound with it. Both report panels collapse
-  // the same details.mtrack blocks, so they share the one handler.
+  // bound per section would be re-bound with it. All three report panels
+  // collapse the same details.mtrack blocks, so they share the one handler.
   function expander(e) {
     if (!e.target.classList || !e.target.classList.contains('tpx')) return;
     var rows = e.target.parentNode.parentNode.querySelectorAll('details.mtrack');
@@ -1394,6 +1523,7 @@ wire('dropB', 'fileB', 'b');
     e.target.textContent = open ? 'collapse all' : 'expand all';
   }
   document.getElementById('media').addEventListener('click', expander);
+  document.getElementById('cues').addEventListener('click', expander);
   document.getElementById('transports').addEventListener('click', expander);
 
   // The system tab compacts by hiding defaults, not by collapsing details, so

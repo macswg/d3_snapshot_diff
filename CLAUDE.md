@@ -9,8 +9,8 @@ are easy to get wrong.
 A browser viewer for disguise d3 showfiles: a `.d3` project archive, or a
 `susan_summary` v6 or v7 JSON snapshot. Drop one to analyze it, two to diff
 them, or choose a folder of `susan_summary` exports to diff the latest pair.
-Four tabs: a semantic diff of two captures, and a media inventory, a
-per-transport view and a system view of one. Every tab carries a header line
+Five tabs: a semantic diff of two captures, and a media inventory, a list of
+cue tags and notes, a per-transport view and a system view of one. Every tab carries a header line
 naming the Designer build each capture came from.
 
 No build step, no dependencies, no server. `index.html` opened from disk works
@@ -20,7 +20,7 @@ introduce a bundler, a framework, or an npm dependency.
 ## Layout
 
 ```
-index.html        UI, all three tabs, rendering and file loading. All the CSS.
+index.html        UI, every tab, rendering and file loading. All the CSS.
 diff.js           The engine. No DOM access — usable from node.
 vendor/d3extract.js  .d3 reader. Verbatim copy from d3_proj_analyzer.
 tools/selftest.js Regression checks against real captures.
@@ -28,7 +28,7 @@ tools/deploy.sh   Version bump, commit, push, wait for Pages.
 ```
 
 `diff.js` exports its entry points under CommonJS and as page globals:
-`diffSnapshots(a, b)`, `summarize(result)`, `mediaReport(snap)`,
+`diffSnapshots(a, b)`, `summarize(result)`, `mediaReport(snap)`, `cueReport(snap)`,
 `transportReport(snap)`, `systemReport(snap)`, and
 `exportDiff(result, a, b, names, generatedAt)` behind the Export JSON button.
 The export's `about` list is its reading rules for a model or script; when one
@@ -84,7 +84,7 @@ Reversing any of these will look like a simplification and will be a regression.
    values the capture never claimed, and hides the release where a default
    changes.
 8. **The build is a header line, not a section.** It qualifies everything below
-   it, so it belongs on the Before/After slots where all three tabs can see it.
+   it, so it belongs on the Before/After slots where every tab can see it.
    Giving it a section would put the environment above the showfile edits, which
    is backwards — you open these captures to see what changed in the show.
 9. **A cue is matched by proximity, not by a key.** Beats are float32 and a
