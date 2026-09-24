@@ -49,6 +49,11 @@ Changes nest: a changed track lists its changed cues and layers, and a changed
 layer lists its changed media. Unchanged entities are omitted entirely — the
 tally in the toolbar counts every node in the tree, including nested ones.
 
+A changed track folds: click its row to close it down to one line saying how
+much it holds, or use **collapse tracks** in the toolbar to fold them all. Folds
+survive a search, which opens every track while it runs so no match is hidden,
+and reset when a new pair is loaded.
+
 ### Setlists are not the showfile
 
 A capture's top-level `tracks` array is only the union of what the setlists
