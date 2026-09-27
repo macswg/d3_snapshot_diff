@@ -353,6 +353,7 @@
   }
   .kcdl:hover { background: #22262e; }
   .kcdl.on { background: #2a2e37; box-shadow: inset 2px 0 var(--ch-fg); }
+  .kcdl.dim { opacity: .35; }
   .kcdl .kcn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .kcdl .grow { margin-left: auto; white-space: nowrap; font-size: 11.5px; }
   .ksw {
@@ -401,12 +402,18 @@
   .kruler { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--edge); }
   .kruler .kl { z-index: 3; background: var(--panel); color: var(--dim); font-size: 11px; }
   .klay { cursor: pointer; }
-  .klay:hover { background: #22262e; }
   .kcar { flex: none; width: 9px; color: var(--dim); font-size: 11px; }
   .kgp { flex: none; max-width: 90px; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
   .kdot { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--edge); }
   .kfld .kl { padding-left: 24px; color: var(--dim); }
   .kr.dim { opacity: .3; }
+  /* Hover. The label cell is sticky and so carries its own opaque background,
+     which has to change with the row's or the name would stay dark beside a lit
+     time axis. A dimmed row comes most of the way back under the pointer, so
+     what the search set aside can still be read without clearing it. */
+  .kgrp:hover > .kr, .kgrp:hover > .kr > .kl { background: #1d2129; }
+  .kgrp > .kr:hover, .kgrp > .kr:hover > .kl { background: #283040; }
+  .kgrp:hover > .kr.dim { opacity: .8; }
   .kr.hot > .kl { box-shadow: inset 2px 0 var(--ch-fg); }
   .ksvg { display: block; flex: none; }
   .ksvg .kbar { fill: #2c313b; }
@@ -500,7 +507,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.8.0</span>
+  <span id="ver">v2.9.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -830,12 +837,42 @@ function hay(node) {
  * the cues inside track 290_whiskey_whiskey -- matching each term against one
  * node in isolation would find nothing, since no cue's own text contains the
  * track name, and that is precisely how someone types a search.
+ *
+ * `+` separates alternatives, each ANDed as above: `cdl + bright*` is anything
+ * matching `cdl` or `bright*`. A term with `*` in it is a pattern anchored at the
+ * start of a word, `*` standing for any run of non-space characters, so
+ * `bright*` finds brightness and brightness (shift) but not a word that merely
+ * contains "bright"; a leading `*` drops the anchor. A term without `*` still
+ * matches anywhere, as it always has, so no existing search changes meaning.
+ * Word starts count after any non-alphanumeric, `_` included, because show names
+ * are built from underscores: `las*` has to find 300_lasers.
  */
+var queryAlts = [];
+
+function reEscape(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function compileQuery(q) {
+  return q.split(/\s*\+\s*/).map(function (alt) {
+    return alt.split(/\s+/).filter(function (t) { return t && t.replace(/\*/g, ''); })
+      .map(function (t) {
+        if (t.indexOf('*') < 0) return { text: t, re: null, mark: reEscape(t) };
+        var body = t.split('*').map(reEscape).join('\\S*');
+        return { text: t, mark: body,
+                 re: new RegExp((t.charAt(0) === '*' ? '' : '(?:^|[^a-z0-9])') + body) };
+      });
+  }).filter(function (alt) { return alt.length; });
+}
+
 function hitsText(h) {
-  if (!query) return false;
-  var terms = query.split(/\s+/);
-  for (var i = 0; i < terms.length; i++) if (h.indexOf(terms[i]) === -1) return false;
-  return true;
+  if (!queryAlts.length) return false;
+  for (var a = 0; a < queryAlts.length; a++) {
+    var alt = queryAlts[a], ok = true;
+    for (var i = 0; i < alt.length && ok; i++) {
+      ok = alt[i].re ? alt[i].re.test(h) : h.indexOf(alt[i].text) !== -1;
+    }
+    if (ok) return true;
+  }
+  return false;
 }
 
 function hits(node, path) { return hitsText(path + ' ' + hay(node)); }
@@ -878,13 +915,17 @@ function countMatches(nodes, path) {
  * first pass's <mark> tags for the same reason. */
 function markup(text) {
   var raw = String(text === null || text === undefined ? '' : text);
-  if (!query) return esc(raw);
-  var terms = query.split(/\s+/).filter(function (t) { return t; })
-    .sort(function (a, b) { return b.length - a.length; })
-    .map(function (t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
-  if (!terms.length) return esc(raw);
-  var re = new RegExp(terms.join('|'), 'gi'), out = '', last = 0, m;
+  if (!queryAlts.length) return esc(raw);
+  // Every term of every alternative is marked: a row kept for `bright*` shows
+  // what matched even when `cdl` is the alternative it was kept for.
+  var terms = [];
+  queryAlts.forEach(function (alt) {
+    alt.forEach(function (t) { terms.push(t); });
+  });
+  terms.sort(function (a, b) { return b.text.length - a.text.length; });
+  var re = new RegExp(terms.map(function (t) { return t.mark; }).join('|'), 'gi'), out = '', last = 0, m;
   while ((m = re.exec(raw)) !== null) {
+    if (!m[0]) { re.lastIndex++; continue; }
     out += esc(raw.slice(last, m.index)) + '<mark>' + esc(m[0]) + '</mark>';
     last = re.lastIndex;
   }
@@ -1239,7 +1280,8 @@ function paintCues() {
 var lastKeys = null, keySource = null;
 // col is an index into lastKeys.columns; cdl is a CDL ref; open maps
 // "track|layer" to an expanded layer.
-var kf = { track: null, col: null, cdl: null, zoom: 1, open: {}, allOpen: false };
+var kf = { track: null, col: null, cdl: null, zoom: 1, open: {}, shut: {}, allOpen: false,
+           lastQuery: '' };
 var KF_LABEL = 260;              // px: the timeline's sticky name column
 var KF_SIDE = 420;               // px: the grid and CDL column, see .kf
 var KF_ZOOMS = [1, 2, 4, 8, 16];
@@ -1292,7 +1334,13 @@ function kfHits(t) {
   return n;
 }
 
-// What the timeline draws of a track under the search and the column filter.
+/* What the timeline draws of a track: every layer the column filter leaves,
+ * with what the search hits marked rather than kept. The search dims the rest
+ * instead of removing it -- a timeline is read for where things sit against each
+ * other, and a layer lifted out of the stack takes that away. `byField` marks a
+ * layer kept for one of its parameters rather than its own name; it opens, since
+ * the match is a row inside it. (The column filter still removes: it is a choice
+ * of what to look at, not a question about what is there.) */
 function kfRows(t) {
   var col = kf.col === null ? null : lastKeys.columns[kf.col];
   var th = kfTrackHay(t);
@@ -1302,11 +1350,13 @@ function kfRows(t) {
     var lh = th + ' ' + kfLayerHay(l);
     var layerHit = trackHit || hitsText(lh);
     var fields = l.fields.filter(function (f) {
-      if (col && col.members.indexOf(f.family) < 0) return false;
-      return layerHit || hitsText(lh + ' ' + kfFieldHay(f));
+      return !col || col.members.indexOf(f.family) >= 0;
     });
     if (!fields.length) return;
-    out.push({ layer: l, key: t.id + '|' + (l.id || '@' + i), fields: fields,
+    var hit = fields.map(function (f) { return layerHit || hitsText(lh + ' ' + kfFieldHay(f)); });
+    var match = hit.some(function (h) { return h; });
+    out.push({ layer: l, key: t.id + '|' + (l.id || '@' + i), fields: fields, hit: hit,
+               match: match, byField: match && !layerHit,
                hot: kf.cdl ? l.cdls.indexOf(kf.cdl) >= 0 : null });
   });
   return out;
@@ -1333,7 +1383,7 @@ function kfCdlTitle(c) {
  * show's keys, and one shared scale left every other column a row of blanks. The
  * CDL column is coloured by the grades themselves rather than by count, since
  * "which look is on this song" is the question it gets asked. */
-function kfGrid(tracks) {
+function kfGrid(tracks, hitsOf) {
   var cols = lastKeys.columns;
   var max = cols.map(function (c, i) {
     var m = 1;
@@ -1350,10 +1400,11 @@ function kfGrid(tracks) {
   }).join('') + '</tr>';
 
   var body = tracks.map(function (t) {
-    var dim = kf.cdl && t.cdlRefs.indexOf(kf.cdl) < 0;
+    var dim = (kf.cdl && t.cdlRefs.indexOf(kf.cdl) < 0) || (query && !hitsOf[t.id]);
     return '<tr class="kgr' + (t.id === kf.track ? ' on' : '') + (dim ? ' dim' : '') +
       '" data-track="' + esc(t.id) + '"><td class="kgt" title="' +
-      esc(t.name + '\n' + plural(t.keyCount, 'key') + ' on ' + plural(t.fieldCount, 'parameter')) +
+      esc(t.name + '\n' + plural(t.keyCount, 'key') + ' on ' + plural(t.fieldCount, 'parameter') +
+          (query ? '\n' + plural(hitsOf[t.id] || 0, 'parameter') + ' matching the search' : '')) +
       '">' + markup(t.name) + '</td>' + cols.map(function (c, i) {
         var cell = t.cells[i], on = kf.col === i ? ' con' : '';
         if (!cell.keys) return '<td class="kgc' + on + '" data-col="' + i + '"></td>';
@@ -1384,16 +1435,17 @@ function kfGrid(tracks) {
   return '<table class="kgrid">' + head + body + '</table>';
 }
 
+// Every CDL stays listed; the search dims the ones it misses, as it does the
+// tracks beside them.
+function kfCdlHit(c) {
+  return !query || hitsText((c.name + ' ' + c.ref + ' ' + c.source).toLowerCase());
+}
+
 function kfCdlList() {
-  var list = lastKeys.cdls.filter(function (c) {
-    return !query || hitsText((c.name + ' ' + c.ref + ' ' + c.source).toLowerCase()) ||
-           c.ref === kf.cdl;
-  });
   if (!lastKeys.cdls.length) return '<p class="note">No layer in this show applies a CDL.</p>';
-  if (!list.length) return '<p class="note">No CDL matches the search.</p>';
-  return list.map(function (c) {
+  return lastKeys.cdls.map(function (c) {
     var on = c.ref === kf.cdl;
-    var html = '<div class="kcdl' + (on ? ' on' : '') + '" data-cdl="' + esc(c.ref) + '" title="' +
+    var html = '<div class="kcdl' + (on ? ' on' : '') + (kfCdlHit(c) ? '' : ' dim') + '" data-cdl="' + esc(c.ref) + '" title="' +
       esc(kfCdlTitle(c)) + '">' + kfSwatch(c.swatch) +
       '<span class="kcn">' + markup(c.name) + '</span>' +
       '<span class="kcs" title="' + (c.source === 'ccFile' ? 'imported ASC .cc file' : 'made in Designer') +
@@ -1483,8 +1535,13 @@ function kfTimeline(t, width) {
 
   rows.forEach(function (r) {
     var l = r.layer;
-    var open = kf.allOpen || !!kf.open[r.key] || !!query || kf.col !== null;
-    var cls = 'kr' + (r.hot === true ? ' hot' : r.hot === false ? ' dim' : '');
+    // Opened by hand, by "expand all", by a search that matched inside it or by
+    // a column filter -- and closed by hand over any of those, or the caret
+    // would stop answering on a layer the search had opened.
+    var open = !kf.shut[r.key] &&
+               (kf.allOpen || !!kf.open[r.key] || r.byField || kf.col !== null);
+    var dimmed = r.hot === false || !r.match;
+    var cls = 'kr' + (r.hot === true ? ' hot' : '') + (dimmed ? ' dim' : '');
     var body = '';
     if (l.tStart !== null && l.tEnd !== null) {
       body += '<rect class="kbar" x="' + x(l.tStart) + '" y="5" rx="2" height="12" width="' +
@@ -1520,23 +1577,27 @@ function kfTimeline(t, width) {
       var c0 = lastKeys.cdlByRef[l.cdls[0]];
       dot = '<span class="kdot" style="background:' + (c0 && c0.swatch ? c0.swatch.mid : '#555') + '"></span>';
     }
-    html += '<div class="' + cls + '"><div class="kl klay" data-layer="' + esc(r.key) + '" title="' +
+    // A layer and its parameter rows share a wrapper so hovering any of them
+    // lights the whole layer: a key diamond far out on the time axis is only
+    // readable once you can see which name it lines up with.
+    html += '<div class="kgrp"><div class="' + cls + '"><div class="kl klay" data-layer="' + esc(r.key) + '" data-open="' +
+      (open ? '1' : '') + '" title="' +
       esc(l.group.concat([l.name]).join(' / ') + '\n' + plain(l.type) +
           (l.notchBlock ? '\n' + l.notchBlock : '') + '\n' + plural(l.keyCount, 'key')) + '">' +
       '<span class="kcar">' + (open ? '▾' : '▸') + '</span>' + group +
       '<span class="kln">' + markup(l.name) + '</span>' + dot + '</div>' + svg(22, body) + '</div>';
 
-    if (!open) return;
-    r.fields.forEach(function (f) {
-      html += '<div class="' + cls + ' kfld">' + kfFieldLabel(f) +
+    if (open) r.fields.forEach(function (f, n) {
+      var fcls = 'kr kfld' + (r.hot === true ? ' hot' : '') + (dimmed || !r.hit[n] ? ' dim' : '');
+      html += '<div class="' + fcls + '">' + kfFieldLabel(f) +
         (f.numeric ? svg(34, kfCurve(f, l, t, x, diamond)) : svg(20, kfBlocks(f, l, t, x, pps, diamond))) +
         '</div>';
     });
+    html += '</div>';
   });
-  if (!rows.length) {
-    html += '<p class="note kpad">Nothing on this track matches' +
-            (kf.col !== null ? ' the ' + esc(lastKeys.columns[kf.col].family) + ' column' : '') +
-            (query ? (kf.col !== null ? ' and' : '') + ' the search' : '') + '.</p>';
+  if (!rows.length && kf.col !== null) {
+    html += '<p class="note kpad">Nothing on this track is in the ' +
+            esc(lastKeys.columns[kf.col].family) + ' column.</p>';
   }
   return '<div class="kscroll"><div class="ktl" style="width:' + (W + KF_LABEL) + 'px">' +
          html + '</div></div>';
@@ -1665,6 +1726,7 @@ function kfTrackPanel(t, width) {
   var why = [];
   if (!t.inSnapshot) why.push('Not on any setlist in the snapshot, so there are no cue markers or timecode.');
   if (t.trashed) why.push('This track is in the trash.');
+  if (query && !kfHits(t)) why.push('Nothing on this track matches the search; it is shown dimmed.');
   return '<div class="kfhead"><span class="tpname">' + markup(t.name) + '</span>' +
     '<span class="of">' + esc(meta.join(' · ')) + '</span>' + chips +
     '<span class="grow kzoom">' + zoom +
@@ -1705,21 +1767,26 @@ function paintKeys() {
     return;
   }
 
-  var shown = lastKeys.tracks, hits = 0;
+  // Every track stays in the grid; the search counts and dims instead of
+  // filtering, so the shape of the show stays in view around what matched.
+  var shown = lastKeys.tracks, hits = 0, hitsOf = {}, hitTracks = [];
   if (query) {
-    shown = lastKeys.tracks.filter(function (t) {
+    shown.forEach(function (t) {
       var n = kfHits(t);
+      hitsOf[t.id] = n;
       hits += n;
-      return n > 0;
+      if (n) hitTracks.push(t);
     });
-    count.textContent = hits ? plural(hits, 'match') : 'no matches';
+    count.textContent = hits ? plural(hits, 'match') + ' on ' + plural(hitTracks.length, 'track')
+                             : 'no matches';
   }
-  if (!shown.length) {
-    out.innerHTML = '<p class="empty">Nothing matches “' + esc(query) + '”.</p>';
-    return;
+  // A new search moves the timeline to its first matching track when the open
+  // one has no match -- but only as the query changes. A dimmed track the user
+  // then clicks is theirs to look at, and a repaint must not snatch it away.
+  if (query !== kf.lastQuery && query && !hitsOf[kf.track] && hitTracks.length) {
+    kf.track = hitTracks[0].id;
   }
-  // A search that hides the picked track moves the timeline to the first track
-  // it does keep, so the right-hand side never shows something the left denies.
+  kf.lastQuery = query;
   var track = shown.filter(function (t) { return t.id === kf.track; })[0] || shown[0];
 
   var scroller = out.querySelector('.kscroll');
@@ -1731,7 +1798,8 @@ function paintKeys() {
   out.innerHTML = notes.map(function (n) { return '<p class="note kpad">' + esc(n) + '</p>'; }).join('') +
     '<div class="kf"><aside class="kfside">' +
     '<section class="tp"><div class="tphead"><span class="tpname">Where things move</span>' +
-    '<span class="grow of">' + plural(shown.length, 'track') + '</span></div>' + kfGrid(shown) +
+    '<span class="grow of">' + (query ? hitTracks.length + ' of ' : '') + plural(shown.length, 'track') +
+    (query ? ' match' : '') + '</span></div>' + kfGrid(shown, hitsOf) +
     '<p class="note">Keys per track and kind of parameter. Click a track to open its timeline, ' +
     'a cell or a heading to show only that kind.</p></section>' +
     '<section class="tp"><div class="tphead"><span class="tpname">CDLs</span>' +
@@ -1770,13 +1838,17 @@ function keysClick(e) {
     var c = kf.cdl && lastKeys.cdlByRef[kf.cdl];
     if (c && c.tracks.indexOf(kf.track) < 0 && c.tracks.length) kf.track = c.tracks[0];
   } else if ((v = el.getAttribute('data-layer')) !== null) {
-    if (kf.open[v]) delete kf.open[v]; else kf.open[v] = true;
+    // Toggle against what the row showed, since a search or "expand all" can
+    // have opened it without the user ever touching it.
+    if (el.getAttribute('data-open')) { delete kf.open[v]; kf.shut[v] = true; }
+    else { delete kf.shut[v]; kf.open[v] = true; }
   } else if ((v = el.getAttribute('data-zoom')) !== null) {
     zoomKeys(+v);
     return;
   } else if (el.getAttribute('data-all') !== null) {
     kf.allOpen = !kf.allOpen;
-    if (!kf.allOpen) kf.open = {};
+    kf.open = {};
+    kf.shut = {};
   } else if ((v = el.getAttribute('data-clear')) !== null) {
     kf[v] = null;
   }
@@ -2185,7 +2257,7 @@ var PLACEHOLDER = {
   changes: 'Search changes… (name, field, value)',
   media: 'Search media… (track, file, version)',
   cues: 'Search cues… (track, tag, note)',
-  keys: 'Search keyframes… (track, layer, parameter, CDL)',
+  keys: 'Search keyframes… (cdl + bright*)',
   transports: 'Search transports… (transport, setlist, track)',
   system: 'Search switches… (name, value)'
 };
@@ -2369,11 +2441,14 @@ document.getElementById('export').addEventListener('click', exportJson);
 (function () {
   var box = document.getElementById('q');
   box.addEventListener('input', function () {
-    query = box.value.trim().toLowerCase();
+    queryAlts = compileQuery(box.value.trim().toLowerCase());
+    // A box holding only `+` or `*` asks for nothing; treating it as a query
+    // would report "nothing matches" for a search nobody has typed yet.
+    query = queryAlts.length ? box.value.trim().toLowerCase() : '';
     paint();
   });
   box.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { box.value = ''; query = ''; paint(); }
+    if (e.key === 'Escape') { box.value = ''; query = ''; queryAlts = []; paint(); }
   });
 })();
 

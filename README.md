@@ -299,9 +299,22 @@ cue` finds the cues inside `290_whiskey_whiskey` even though no cue's own text
 contains "whiskey". Track titles inside a running order are searchable too,
 folded or not.
 
+`+` separates alternatives: `cdl + bright*` finds anything matching `cdl` **or**
+`bright*`, each alternative ANDing its own terms as above. A term with `*` is a
+pattern anchored at the start of a word, `*` standing for any run of
+non-space characters: `bright*` finds `brightness` and `brightness (shift)`, and
+`las*` finds `300_lasers` (an underscore starts a word, since show names are
+built from them). A leading `*` drops the anchor, so `*ness` matches anywhere. A
+term without `*` still matches anywhere in the text, as it always has.
+
 On the media report it matches track names, filenames, versions and layer names.
 On tags & notes it matches track names, tag types and text, notes and timecodes.
 On transport info it matches transport names, setlists and track names.
+On keyframes it matches track and layer names, parameter names and Notch labels,
+clip and CDL names, and expressions; it dims what misses instead of hiding it,
+because the timeline is read for where things sit against each other. A layer
+kept for one of its parameters opens to show it, and a new search that misses
+the open track moves to the first track it hits.
 
 In each, a row kept only to place a match further down is dimmed: it is
 context, not a hit. The count is of actual hits. Escape clears.
