@@ -132,8 +132,9 @@ Reversing any of these will look like a simplification and will be a regression.
     because the viewer must not learn the plugin's id format. `derived` ids are
     not move-stable (groupPath is baked in), so a move reads as remove plus add
     on those; the asymmetry with `uid` is deliberate on both sides.
-12. **Media and transport info need one snapshot, not two.** They read After
-    when there is one and Before otherwise (`reportSource` in `index.html`), so
+12. **The single-file tabs need one snapshot, not two.** Media report, tags &
+    notes, transport info and system info read After when there is one and
+    Before otherwise (`reportSource` in `index.html`), never a mix of the two, so
     a single capture is enough to look at the show you have. Preferring After is
     what keeps the answer stable as files arrive instead of switching which
     capture the tab describes. The tally says `from Before` only when it read
@@ -154,8 +155,11 @@ Reversing any of these will look like a simplification and will be a regression.
 14. **Keyframes are not part of a snapshot, and travel beside one.** A `.d3`
     yields both; a `_keyframes.json` joins whatever snapshot its slot holds, and
     a snapshot `.json` keeps them only when both name the same project. The
-    Keyframes tab picks its own slot (After, else Before) because the slot with
-    keyframes need not be the one the other tabs read. Folding keyframes into the
+    Keyframes tab picks its own slot (`keySource`: After, else Before) because
+    the slot with keyframes need not be the one the other tabs read, and takes
+    cue markers only from the snapshot in that same slot. Its tally says `from
+    Before` on the same terms as #12. The README's "Which file a tab describes"
+    is the user-facing statement of both rules; change them together. Folding keyframes into the
     snapshot would change the schema the plugin shares with this viewer for a
     file the plugin does not write.
 15. **A key's timecode is the extractor's timecode, not a better one.** A TC

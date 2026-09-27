@@ -25,8 +25,8 @@ or open `index.html` locally straight from disk — both work identically since
 nothing leaves the browser.
 
 - **One file** — drop a `.d3` (or an exported `.json`) on either box. The
-  Media report, Tags & notes, Keyframes, Transport info and System info tabs describe it; they read After
-  when there is one and Before otherwise.
+  Media report, Tags & notes, Keyframes, Transport info and System info tabs
+  describe it. See [Which file a tab describes](#which-file-a-tab-describes).
 - **Two files** — one on **Before**, one on **After**. The Changes tab shows
   what changed between them.
 - **A folder of exports** — **Choose folder…** and point it at the directory
@@ -35,6 +35,26 @@ nothing leaves the browser.
   the head of the filename (`2026-07-18_20-17-27_…`), falling back to the file's
   own date for names without one — the toolbar says how many were ordered that
   way. The folder picker reads `.json` only; drop `.d3` files on the boxes.
+
+### Which file a tab describes
+
+Only **Changes** compares the two files. Every other tab describes **one file,
+never a mix of the two**: After when it has what the tab needs, otherwise Before.
+
+| Tab | Reads |
+| --- | --- |
+| Changes | Both: Before against After. Needs a file in each. |
+| Media report, Tags & notes, Transport info, System info | The After snapshot if After holds one, otherwise Before's. |
+| Keyframes | The After keyframes if After holds keyframes, otherwise Before's. Cue markers, timecode and track length come from the snapshot **in that same slot**, never the other one. |
+
+When a tab reads Before, its tally line ends with a dim **from Before**. Reading
+After is the default and is not labelled.
+
+**Keyframes can land on a different slot from the other tabs.** A snapshot
+`.json` carries no keyframes, so the Keyframes tab picks its slot on its own.
+With a `.d3` on Before and a snapshot `.json` on After, the Media report and
+Tags & notes describe After while Keyframes describes Before and says "from
+Before". A `.d3` on After, or on both, keeps every tab on After.
 
 ## Reading the output
 
@@ -144,12 +164,13 @@ The second tab is not a diff. It is a plain inventory of **one snapshot** —
 every track in it and what each one is programmed with. It answers "what is
 loaded, and which version", which the diff deliberately never says.
 
-Which snapshot: After when one is loaded, otherwise Before. Preferring After
+Which snapshot: After when one is loaded, otherwise Before (see
+[Which file a tab describes](#which-file-a-tab-describes)). Preferring After
 keeps the answer stable as files arrive rather than switching what the tab
-describes, and reading Before means a single capture is enough for both these
-tabs — you do not have to invent a second one to look at the show you have. The
-tally says `from Before` when that is what it read; After is the default and
-labelling it every time would be noise.
+describes, and reading Before means a single capture is enough for the
+single-file tabs — you do not have to invent a second one to look at the show
+you have. The tally says `from Before` when that is what it read; After is the
+default and labelling it every time would be noise.
 
 One row per media file under each track: filename, version, layer, flags, and
 the layer's in and out times. Rows are in timeline order, so reading down a
@@ -235,6 +256,11 @@ grey ramp and a hue ramp. A grey ramp alone can show tint and contrast but never
 saturation, which is why there are two. Designer grades in its working colour
 space with OCIO or ACES transforms around the CDL, which the archive does not
 describe.
+
+**Which keyframes:** After's when After holds keyframes, otherwise Before's,
+chosen separately from the other tabs because a snapshot `.json` carries none.
+So it can describe a different slot from the Media report; its tally says "from
+Before" when it does. See [Which file a tab describes](#which-file-a-tab-describes).
 
 **Keyframes come from a `.d3` or from the extractor's `_keyframes.json`.** A
 snapshot `.json` carries none. Dropping a `.d3` reads both from the archive. A
@@ -741,7 +767,7 @@ automatic transport in it at all.
   way to show surrounding context the way `diff -U` does.
 - Only two snapshots at a time. A folder-wide timeline ("show me this project
   across the week") would need a different UI and is not built.
-- The media report, tags & notes and transport info read **one snapshot**. Neither marks what
+- The media report, tags & notes, keyframes and transport info read **one file**. None marks what
   changed since the other — deliberately, since the tree already does
   comparison, but "which versions moved since yesterday" is a fair thing to want
   and is not answerable from the media tab today.
