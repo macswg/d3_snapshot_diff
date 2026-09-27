@@ -1026,10 +1026,328 @@ function systemReport(snap) {
   };
 }
 
+/* Keyframes ----------------------------------------------------------------
+ * One show's layer animation, read from the extractor's keyframes document
+ * (`"format": "d3_keyframes"`), with the snapshot beside it for what the
+ * keyframes file does not carry: cue markers, timecode and track length.
+ *
+ * Returns {columns:[{family, fields, keys}], tracks:[…], cdls:[…],
+ *          totals:{tracks, layers, fields, keys, cdls, cdlLayers}, notes:[…]},
+ * or null when the document is not a keyframes file.
+ *
+ * Nothing here compares two captures. The show holds ~5,700 keys on ~2,200
+ * parameters, which no single list can show, so the report is shaped for three
+ * views of it: a show-wide grid of tracks against kinds of parameter, a
+ * timeline of one track, and the CDLs the show uses.
+ */
+
+// Grid columns. The show has about a hundred distinct parameter names, most on
+// a handful of layers; nine named columns plus "other" keeps a row readable at
+// a glance and still names every family that animates more than a few layers.
+var KEYFRAME_COLUMNS = 9;
+var KEYFRAMES_OTHER = 'other';
+var CDL_VALUE_TYPE = 'CDL::RP';
+
+function keyframeFamily(name) {
+  // A Notch or RenderStream parameter is named by attribute id, so every exposed
+  // control is its own name. Counted apart, 307 of them would each be a column
+  // of one; grouped, they are one kind of thing, the block's controls.
+  if (String(name).indexOf('::Attributes::') >= 0) return 'Notch';
+  // Vector parameters arrive split per component (scale.x, scale.y). The grid
+  // asks what kind of thing moves, not along which axis.
+  return String(name).split('.')[0];
+}
+
+/* ASC CDL, applied the way the spec writes it: slope, offset, clamp, power,
+ * then saturation against Rec.709 luma, clamped. Only for a swatch -- Designer
+ * grades in its working colour space with OCIO or ACES transforms around the
+ * CDL, which the archive does not describe, so this shows the direction of a
+ * grade (warmer, darker, flatter), not its exact look on the wall. */
+function gradeRgb(cdl, rgb) {
+  var out = [0, 0, 0], i, v;
+  for (i = 0; i < 3; i++) {
+    v = rgb[i] * cdl.slope[i] + cdl.offset[i];
+    v = v < 0 ? 0 : (v > 1 ? 1 : v);
+    out[i] = Math.pow(v, cdl.power[i]);
+  }
+  var luma = 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2];
+  for (i = 0; i < 3; i++) {
+    v = luma + cdl.saturation * (out[i] - luma);
+    out[i] = v < 0 ? 0 : (v > 1 ? 1 : v);
+  }
+  return out;
+}
+
+function rgbHex(rgb) {
+  return '#' + rgb.map(function (v) {
+    return ('0' + Math.round(v * 255).toString(16)).slice(-2);
+  }).join('');
+}
+
+function hsvRgb(h, s, v) {
+  var i = Math.floor(h * 6), f = h * 6 - i;
+  var p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  return [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6];
+}
+
+var GREY_STOPS = [0, 0.2, 0.4, 0.6, 0.8, 1];
+var HUE_STOPS = [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1];
+
+/* Two ramps, not one colour. A grey ramp alone shows tint and contrast but can
+ * never show saturation, since grey has none; the hue ramp is what makes a
+ * saturation of 0.15 visibly drain. `mid` is the graded mid-grey, small enough
+ * to fill a timeline segment a few pixels wide. */
+function cdlSwatch(cdl) {
+  if (!cdl || !cdl.slope || !cdl.power || !cdl.offset || typeof cdl.saturation !== 'number') {
+    return null;
+  }
+  return {
+    grey: GREY_STOPS.map(function (g) { return rgbHex(gradeRgb(cdl, [g, g, g])); }),
+    hue: HUE_STOPS.map(function (h) { return rgbHex(gradeRgb(cdl, hsvRgb(h, 0.6, 0.75))); }),
+    mid: rgbHex(gradeRgb(cdl, [0.45, 0.45, 0.45]))
+  };
+}
+
+function isIdentityCdl(c) {
+  function all(list, v) { return list.every(function (x) { return Math.abs(x - v) < EPSILON; }); }
+  return !!c && all(c.slope, 1) && all(c.power, 1) && all(c.offset, 0) &&
+         Math.abs(c.saturation - 1) < EPSILON;
+}
+
+/* A TC tag's HH:MM:SS:FF as seconds, counted the way the extractor and the
+ * plugin count it: the label is a frame count on the nominal rate, and those
+ * frames run at the real one (frames / 29.97), so 14:00:02:00 is 50,452.45 s,
+ * not 50,402. Reading the label as wall-clock time put a key's timecode 50 s
+ * away from the tcStart of the layer it sits on. */
+function tcSeconds(text, fps) {
+  var parts = String(text || '').replace(/^\s+|\s+$/g, '').split(/[:;.]/);
+  if (parts.length !== 4 || !fps) return null;
+  for (var i = 0; i < 4; i++) if (!/^\d+$/.test(parts[i])) return null;
+  var nominal = Math.round(fps);
+  return (((+parts[0]) * 60 + (+parts[1])) * 60 + (+parts[2])) * nominal / fps + (+parts[3]) / fps;
+}
+
+/* Timecode at `t` track seconds, counted on from the last cue at or before it
+ * that carries one -- the same rule the extractor uses for a layer's tcStart,
+ * so a key and the layer it sits on read on one clock. Null before the first
+ * timecode, where the track has none. */
+function timecodeAt(track, t) {
+  if (!track || !track.anchors || !track.anchors.length || !track.fps || t === null) return null;
+  var a = null;
+  track.anchors.forEach(function (x) { if (x.t <= t + EPSILON) a = x; });
+  if (!a) return null;
+  var fps = track.fps, nominal = Math.round(fps);
+  var total = a.sec + (t - a.t);
+  var sign = total < 0 ? '-' : '';
+  total = Math.abs(total);
+  var whole = Math.floor(total), frames = Math.round((total - whole) * fps);
+  if (frames >= nominal) { frames = 0; whole++; }
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  return sign + two(Math.floor(whole / 3600)) + ':' + two(Math.floor(whole % 3600 / 60)) + ':' +
+         two(whole % 60) + '.' + two(frames);
+}
+
+function keyframeReport(doc, snap) {
+  if (!doc || doc.format !== 'd3_keyframes') return null;
+  var notes = [];
+
+  // Only a setlist's tracks are in a snapshot; the keyframes file covers the
+  // whole show. A track with no snapshot record still draws, just without cue
+  // markers or timecode, and says why.
+  var snapTracks = {};
+  ((snap && snap.tracks) || []).forEach(function (t) { snapTracks[String(t.id)] = t; });
+  if (snap && (snap.project !== doc.project || snap.capturedAt !== doc.capturedAt)) {
+    notes.push('The keyframes were read from ' + (doc.source || doc.project) + ' (' +
+               doc.capturedAt + ') and the cue markers from a snapshot captured ' +
+               snap.capturedAt + '. If the show changed in between, markers can sit ' +
+               'off their keys.');
+  }
+  // Format 2 dropped any CDL set with a single key -- 433 of 435 graded layers
+  // on the reference show -- so a v2 file's CDL lane is nearly empty, and silence
+  // about why would read as "this show is barely graded".
+  if ((doc.formatVersion || 0) < 3) {
+    notes.push('This keyframes file is format ' + doc.formatVersion + ', which left out a ' +
+               'CDL set with a single key: nearly every graded layer. Drop the .d3 itself, ' +
+               'or re-export it from the extractor, to see them.');
+  }
+
+  var cdlTable = doc.cdls || {};
+  var cdlUse = {};
+
+  function numeric(f) {
+    var nums = 0, other = 0;
+    (f.keys || []).forEach(function (k) {
+      if (typeof k.value === 'number') nums++;
+      else if (k.value !== null && k.value !== undefined) other++;
+    });
+    if (typeof f['default'] === 'number') nums++;
+    return nums > 0 && other === 0;
+  }
+
+  var familyFields = {}, familyKeys = {};
+  var totals = { tracks: 0, layers: 0, fields: 0, keys: 0, cdls: 0, cdlLayers: 0 };
+
+  var tracks = (doc.tracks || []).map(function (t) {
+    var st = snapTracks[String(t.id)] || null;
+    var fps = st && st.fps ? st.fps : null;
+    var anchors = [];
+    var cues = ((st && st.cues) || []).filter(function (c) {
+      return typeof c.t === 'number';
+    }).map(function (c) {
+      // Anchored on the TC tag's own text, not on the cue's `timecode`: that is
+      // already rounded to a frame, and counting on from a rounded anchor put
+      // 8 of 873 layers a frame away from the tcStart the extractor wrote.
+      var tag = (c.tags || []).filter(function (g) { return g.type === 'tc'; })[0];
+      var sec = tag ? tcSeconds(tag.text, fps) : null;
+      if (sec !== null) anchors.push({ t: c.t, sec: sec });
+      return { t: c.t, isSection: !!c.isSection,
+               note: c.note ? showWhitespace(String(c.note)) : null,
+               tags: (c.tags || []).map(function (g) {
+                 return { type: g.type, text: showWhitespace(String(g.text || '')) };
+               }),
+               timecode: c.timecode || null };
+    });
+
+    // The span to draw is where the layers and keys are, not 0 to the track's
+    // length: a show track runs for an hour with its content in a 25-minute
+    // stretch, and drawn whole that stretch got under half the width.
+    var lo = Infinity, hi = -Infinity;
+    var fams = {}, keyCount = 0, fieldCount = 0, cdlLayers = 0;
+
+    var layers = (t.layers || []).map(function (l) {
+      var refs = [], lkeys = 0;
+      if (typeof l.tStart === 'number') lo = Math.min(lo, l.tStart);
+      if (typeof l.tEnd === 'number') hi = Math.max(hi, l.tEnd);
+      var fields = (l.fields || []).map(function (f) {
+        var family = keyframeFamily(f.name);
+        var isCdl = f.valueType === CDL_VALUE_TYPE;
+        var num = !isCdl && numeric(f);
+        var min = null, max = null;
+        var keys = (f.keys || []).map(function (k) {
+          if (typeof k.t === 'number') { lo = Math.min(lo, k.t); hi = Math.max(hi, k.t); }
+          if (num && typeof k.value === 'number') {
+            min = min === null ? k.value : Math.min(min, k.value);
+            max = max === null ? k.value : Math.max(max, k.value);
+          }
+          if (isCdl && k.value && refs.indexOf(k.value) < 0) refs.push(k.value);
+          return { t: k.t, value: k.value === undefined ? null : k.value,
+                   interpolation: k.interpolation || null };
+        });
+        if (isCdl && typeof f['default'] === 'string' && refs.indexOf(f['default']) < 0) {
+          refs.push(f['default']);
+        }
+        fams[family] = fams[family] || { fields: 0, keys: 0 };
+        fams[family].fields++;
+        fams[family].keys += keys.length;
+        familyFields[family] = (familyFields[family] || 0) + 1;
+        familyKeys[family] = (familyKeys[family] || 0) + keys.length;
+        lkeys += keys.length;
+        return {
+          name: f.name,
+          // A Notch control's name is an attribute id; its label is the name the
+          // block exposes, which is what anyone looking for it would type.
+          display: showWhitespace(f.label || f.name),
+          label: f.label || null, family: family, valueType: f.valueType || null,
+          numeric: num, isCdl: isCdl, expression: f.expression || null,
+          'default': f['default'] === undefined ? null : f['default'],
+          keys: keys, min: min, max: max
+        };
+      });
+      refs.forEach(function (r) {
+        cdlUse[r] = cdlUse[r] || { layers: 0, tracks: [] };
+        cdlUse[r].layers++;
+        if (cdlUse[r].tracks.indexOf(String(t.id)) < 0) cdlUse[r].tracks.push(String(t.id));
+      });
+      if (refs.length) cdlLayers++;
+      keyCount += lkeys;
+      fieldCount += fields.length;
+      return { id: l.id === undefined ? null : l.id, name: showWhitespace(l.name),
+               rawName: l.name, group: (l.groupPath || []).map(showWhitespace),
+               type: l.type || null, tStart: typeof l.tStart === 'number' ? l.tStart : null,
+               tEnd: typeof l.tEnd === 'number' ? l.tEnd : null,
+               notchBlock: l.notchBlock || null, keyCount: lkeys, cdls: refs, fields: fields };
+    });
+
+    if (lo === Infinity) {
+      lo = 0;
+      hi = st && typeof st.lengthInSec === 'number' ? st.lengthInSec : 1;
+    }
+
+    totals.tracks++;
+    totals.layers += layers.length;
+    totals.fields += fieldCount;
+    totals.keys += keyCount;
+    totals.cdlLayers += cdlLayers;
+    // `id` raw, `name` marked, as in the other reports: the page keys on the id.
+    return { id: String(t.id), name: showWhitespace(t.name || String(t.id)),
+             bpm: typeof t.bpm === 'number' ? t.bpm : null,
+             lengthInSec: st && typeof st.lengthInSec === 'number' ? st.lengthInSec : null,
+             start: lo, end: hi > lo ? hi : lo + 1,
+             inSnapshot: !!st, trashed: !!(st && st.trashed), fps: fps,
+             anchors: anchors, cues: cues, layers: layers,
+             keyCount: keyCount, fieldCount: fieldCount, cdlLayers: cdlLayers, families: fams };
+  });
+
+  // Columns ranked by how many parameters animate, not by key count: one
+  // brightness field with 96 keys is one busy fade, while 435 CDL fields is the
+  // grade of the whole show. Name breaks ties so the grid is stable between runs.
+  var ranked = Object.keys(familyFields).sort(function (a, b) {
+    return familyFields[b] - familyFields[a] || (a < b ? -1 : a > b ? 1 : 0);
+  });
+  var named = ranked.slice(0, KEYFRAME_COLUMNS);
+  var rest = ranked.slice(KEYFRAME_COLUMNS);
+  var columns = named.map(function (f) {
+    return { family: f, fields: familyFields[f], keys: familyKeys[f], members: [f] };
+  });
+  if (rest.length) {
+    columns.push({
+      family: KEYFRAMES_OTHER, members: rest,
+      fields: rest.reduce(function (s, f) { return s + familyFields[f]; }, 0),
+      keys: rest.reduce(function (s, f) { return s + familyKeys[f]; }, 0)
+    });
+  }
+  tracks.forEach(function (t) {
+    t.cells = columns.map(function (c) {
+      var cell = { fields: 0, keys: 0 };
+      c.members.forEach(function (f) {
+        if (t.families[f]) { cell.fields += t.families[f].fields; cell.keys += t.families[f].keys; }
+      });
+      return cell;
+    });
+  });
+
+  var cdls = Object.keys(cdlUse).map(function (ref) {
+    var c = cdlTable[ref];
+    var rec = c ? {
+      ref: ref, name: c.name, source: c.source, slope: c.slope, power: c.power,
+      offset: c.offset, saturation: c.saturation, error: c.error || null
+    } : {
+      ref: ref, name: ref.split('/').pop().replace(/\.cc$/, ''),
+      source: /^objects\/lutfile\//.test(ref) ? 'ccFile' : 'designer',
+      slope: null, power: null, offset: null, saturation: null,
+      error: 'values not in this keyframes file'
+    };
+    rec.swatch = rec.error ? null : cdlSwatch(rec);
+    rec.identity = !rec.error && isIdentityCdl(rec);
+    rec.layers = cdlUse[ref].layers;
+    rec.tracks = cdlUse[ref].tracks;
+    return rec;
+  }).sort(function (a, b) {
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : (a.ref < b.ref ? -1 : 1);
+  });
+  totals.cdls = cdls.length;
+
+  return { project: doc.project || null, capturedAt: doc.capturedAt || null,
+           source: doc.source || null, formatVersion: doc.formatVersion || null,
+           columns: columns, tracks: tracks, cdls: cdls, totals: totals, notes: notes };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
                      mediaReport: mediaReport, cueReport: cueReport,
                      transportReport: transportReport,
                      systemReport: systemReport, exportDiff: exportDiff,
+                     keyframeReport: keyframeReport, timecodeAt: timecodeAt,
+                     cdlSwatch: cdlSwatch, gradeRgb: gradeRgb,
                      matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
 }

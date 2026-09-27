@@ -1445,6 +1445,157 @@ if (!archivePath) {
         diff.transportReport(fromArchive).totals.transports > 0);
 }
 
+console.log('\nkeyframes');
+/* The Keyframes tab reads the extractor's keyframes document beside a snapshot.
+ * The real-archive cases pin what the tab promises about a whole show; the
+ * fixtures cover states no archive holds on demand -- a format 2 file, a CDL
+ * with no values, a CDL set only by its default. */
+if (archivePath) {
+  var keyDoc = JSON.parse(X.toJson(X.buildKeyframes(abuf, opts)));
+  var kr = diff.keyframeReport(keyDoc, fromArchive);
+
+  check('every key and parameter in the file is in the report, counted once',
+        kr.totals.keys === keyDoc.keyCount && kr.totals.fields === keyDoc.fieldCount &&
+        kr.totals.tracks === keyDoc.trackCount,
+        JSON.stringify(kr.totals) + ' vs ' + keyDoc.keyCount + '/' + keyDoc.fieldCount);
+
+  // "other" catches every family outside the named columns, so a row's cells
+  // are the whole track. A family dropped between the two would be animation
+  // the grid never shows.
+  check('a track\'s grid cells add up to all of its keys',
+        kr.tracks.every(function (t) {
+          return t.cells.reduce(function (s, c) { return s + c.keys; }, 0) === t.keyCount;
+        }));
+
+  check('the grid has at most ten columns, the last of them "other" when there are ten',
+        kr.columns.length <= 10 &&
+        (kr.columns.length < 10 || kr.columns[kr.columns.length - 1].family === 'other'),
+        kr.columns.map(function (c) { return c.family; }).join(', '));
+
+  // The regression the extractor's format 3 exists for: a CDL is nearly always
+  // set with a single key, and a report that only saw animated fields listed
+  // 2 graded layers of 435.
+  var graded = 0;
+  keyDoc.tracks.forEach(function (t) {
+    t.layers.forEach(function (l) {
+      if (l.fields.some(function (f) {
+        return f.valueType === 'CDL::RP' && (f['default'] || f.keys.some(function (k) { return k.value; }));
+      })) graded++;
+    });
+  });
+  check('every graded layer in the file is counted as graded',
+        kr.totals.cdlLayers === graded && graded > 0, kr.totals.cdlLayers + ' vs ' + graded);
+  // A layer that switches between two looks is counted under both, so the
+  // per-CDL counts can only meet or exceed the graded layers, never fall short.
+  check('each graded layer is counted under every CDL it names',
+        kr.cdls.reduce(function (s, c) { return s + c.layers; }, 0) >= kr.totals.cdlLayers);
+  if (keyDoc.formatVersion >= 3) {
+    check('every CDL a layer names comes with its values from a format 3 file',
+          kr.cdls.every(function (c) { return !c.error && c.swatch; }),
+          kr.cdls.filter(function (c) { return c.error; }).map(function (c) { return c.ref; }).join(', '));
+  } else {
+    console.log('NOTE: the vendored extractor writes keyframes format ' + keyDoc.formatVersion +
+                ' -- CDL values untested.');
+  }
+
+  // A key and the layer it sits on have to read on one clock. Where the
+  // extractor gave a layer a timecode, the report's rule gives the same one.
+  var tcSeen = 0, tcOff = [];
+  var snapById = {};
+  fromArchive.tracks.forEach(function (t) { snapById[t.id] = t; });
+  kr.tracks.forEach(function (t) {
+    var st = snapById[t.id];
+    if (!st) return;
+    var byId = {};
+    st.layers.forEach(function (l) { byId[l.id] = l; });
+    t.layers.forEach(function (l) {
+      var s = byId[l.id];
+      if (!s || s.tcStart === null) return;
+      tcSeen++;
+      var mine = diff.timecodeAt(t, l.tStart);
+      if (mine !== s.tcStart) tcOff.push(t.id + ' ' + l.name + ': ' + mine + ' vs ' + s.tcStart);
+    });
+  });
+  check('a layer\'s start reads the same timecode the extractor gave it',
+        tcSeen > 0 && tcOff.length === 0, tcSeen + ' compared; ' + tcOff.slice(0, 3).join('; '));
+
+  check('the report builds from a keyframes file alone, without cue markers',
+        (function () {
+          var alone = diff.keyframeReport(keyDoc, null);
+          return alone.totals.keys === kr.totals.keys &&
+                 alone.tracks.every(function (t) { return !t.cues.length && !t.inSnapshot; });
+        })());
+}
+
+check('a snapshot is not mistaken for a keyframes file',
+      diff.keyframeReport(A, null) === null && diff.keyframeReport(null, null) === null);
+
+function kfDoc(version, fields, cdls) {
+  return { format: 'd3_keyframes', formatVersion: version, project: 'p', capturedAt: 'x',
+           keyCount: 0, fieldCount: fields.length, trackCount: 1, cdls: cdls,
+           tracks: [{ id: 't', name: 't', bpm: 60, layers: [
+             { id: '#1', name: 'L', groupPath: [], type: 'VariableVideoModule',
+               tStart: 10, tEnd: 20, notchBlock: null, fields: fields }] }] };
+}
+function cdlField(keys, dflt) {
+  return { name: 'cdl', label: null, valueType: 'CDL::RP', expression: null,
+           'default': dflt === undefined ? null : dflt, keys: keys };
+}
+
+// Silence about a format 2 file's missing CDLs reads as "this show is barely
+// graded", which is the one conclusion it cannot support.
+check('a format 2 file says its CDLs are incomplete',
+      diff.keyframeReport(kfDoc(2, [], undefined), null).notes.some(function (n) {
+        return /format 2/.test(n) && /CDL/.test(n);
+      }));
+check('a format 3 file carries no such note',
+      diff.keyframeReport(kfDoc(3, [], {}), null).notes.length === 0);
+
+check('a CDL set only as the default still grades the layer',
+      (function () {
+        var r = diff.keyframeReport(kfDoc(3, [cdlField([], 'objects/cdl/look')], {}), null);
+        return r.totals.cdlLayers === 1 && r.cdls.length === 1 && r.cdls[0].ref === 'objects/cdl/look';
+      })());
+
+// A CDL the file names without values (format 2, or an unreadable resource) is
+// listed with its error, never given a made-up swatch.
+check('a CDL with no values is listed without a swatch, not with a guessed one',
+      (function () {
+        var r = diff.keyframeReport(kfDoc(2, [cdlField([{ t: 10, value: 'objects/lutfile/a.cc',
+                                                          interpolation: 'step' }])], undefined), null);
+        return r.cdls.length === 1 && r.cdls[0].swatch === null && !!r.cdls[0].error &&
+               r.cdls[0].name === 'a' && r.cdls[0].source === 'ccFile';
+      })());
+
+check('an identity CDL leaves the grey ramp grey',
+      (function () {
+        var sw = diff.cdlSwatch({ slope: [1, 1, 1], power: [1, 1, 1], offset: [0, 0, 0], saturation: 1 });
+        return sw.grey.every(function (h) {
+          return h.slice(1, 3) === h.slice(3, 5) && h.slice(3, 5) === h.slice(5, 7);
+        }) && sw.grey[0] === '#000000' && sw.grey[sw.grey.length - 1] === '#ffffff';
+      })());
+
+// Blue slope below red and green is a warm grade; the swatch has to say so or
+// it is decoration rather than information.
+check('a grade that pulls blue down reads warm on the swatch',
+      (function () {
+        var rgb = diff.gradeRgb({ slope: [1, 0.95, 0.75], power: [0.92, 1, 1], offset: [0, 0, 0],
+                                  saturation: 1 }, [0.5, 0.5, 0.5]);
+        return rgb[0] > rgb[1] && rgb[1] > rgb[2];
+      })());
+
+// The plugin's rule, kept on purpose: a TC tag's frames run at the real rate,
+// so at 29.97 the label 01:00:00:00 is 108,000 frames, or 3,603.6 s.
+check('timecode counts on from the last TC tag on the real frame rate',
+      (function () {
+        var snap = { project: 'p', capturedAt: 'x', tracks: [{ id: 't', fps: 29.97, lengthInSec: 60,
+          cues: [{ t: 5, isSection: false, note: null, timecode: null,
+                   tags: [{ type: 'tc', text: '01:00:00:00' }] }] }] };
+        var t = diff.keyframeReport(kfDoc(3, [], {}), snap).tracks[0];
+        return diff.timecodeAt(t, 4) === null && diff.timecodeAt(t, 5) === '01:00:03.18' &&
+               diff.timecodeAt(t, 15) === '01:00:13.18';
+      })());
+
 console.log('\nexport');
 // The export is read by something other than this page, so what matters is what
 // survives JSON.stringify -- not what the in-memory object looks like.

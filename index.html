@@ -313,6 +313,116 @@
     text-align: right; color: var(--dim);
   }
   .swv.on { color: var(--add-fg); }
+
+  /* Keyframes. The grid and the CDLs ride in a sticky side column so the track
+     picker stays in reach while the timeline beside it scrolls; under 1100px
+     there is no room for two columns and they stack. */
+  .kf { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .kfside { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow: auto; padding-right: 4px; }
+  .kfmain { min-width: 0; }
+  @media (max-width: 1100px) {
+    .kf { grid-template-columns: minmax(0, 1fr); }
+    .kfside { position: static; max-height: none; max-width: 640px; }
+  }
+  .kpad { margin: 0 0 8px; }
+  .kgrid { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 12px; }
+  .kgrid th, .kgrid td { padding: 0; }
+  .kgrid .kgt { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px 1px 4px; }
+  .kgrid th.kgt { color: var(--dim); font-weight: 400; vertical-align: bottom; }
+  /* Vertical headings: ten columns of parameter names do not fit across 420px
+     any other way, and a legend would put the name a glance away from its column. */
+  .kgh { width: 24px; height: 92px; vertical-align: bottom; cursor: pointer; color: var(--dim); font-weight: 400; }
+  .kgh span {
+    display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg);
+    white-space: nowrap; max-height: 88px; overflow: hidden; text-overflow: ellipsis; padding: 2px 0 4px;
+  }
+  .kgh:hover, .kgh.on { color: var(--fg); }
+  .kgh.on { box-shadow: inset 0 -2px var(--ch-fg); }
+  .kgr { cursor: pointer; }
+  .kgr:hover .kgt { background: #22262e; }
+  .kgr.on .kgt { background: #2a2e37; color: var(--fg); box-shadow: inset 2px 0 var(--ch-fg); }
+  .kgr.dim { opacity: .35; }
+  .kgc {
+    height: 19px; text-align: center; border: 1px solid var(--bg); cursor: pointer;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
+  }
+  .kgc.con { outline: 1px solid var(--ch-fg); outline-offset: -1px; }
+  .kcdl {
+    display: flex; gap: 8px; align-items: center; padding: 3px 4px;
+    border-radius: 4px; cursor: pointer; font-size: 12.5px;
+  }
+  .kcdl:hover { background: #22262e; }
+  .kcdl.on { background: #2a2e37; box-shadow: inset 2px 0 var(--ch-fg); }
+  .kcdl .kcn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kcdl .grow { margin-left: auto; white-space: nowrap; font-size: 11.5px; }
+  .ksw {
+    flex: none; display: inline-flex; flex-direction: column; width: 64px; height: 18px;
+    border-radius: 3px; overflow: hidden; border: 1px solid var(--edge); vertical-align: middle;
+  }
+  .ksw i { flex: 1; }
+  .ksw.none { background: repeating-linear-gradient(45deg, #2a2e37 0 4px, #1e2128 4px 8px); }
+  .kcs { flex: none; font-size: 10.5px; color: var(--dim); border: 1px solid var(--edge); border-radius: 3px; padding: 0 4px; }
+  .kcv {
+    margin: 2px 0 10px 76px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; color: var(--dim);
+  }
+  .kcv b { color: var(--fg); font-weight: 400; }
+  .kct { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; font-family: inherit; }
+  .kbtn {
+    border: 1px solid var(--edge); border-radius: 4px; padding: 1px 7px; background: var(--panel);
+    color: var(--dim); font: inherit; font-size: 11.5px; cursor: pointer;
+  }
+  .kbtn:hover, .kbtn.on { color: var(--fg); border-color: var(--dim); }
+  .kfhead {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 0 0 6px; border-bottom: 1px solid var(--edge); margin-bottom: 8px;
+  }
+  .kfhead .tpname { font-weight: 600; }
+  .kfhead .of { color: var(--dim); font-size: 12px; }
+  .kzoom { margin-left: auto; display: flex; gap: 4px; }
+  .kchip {
+    display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--ch-fg);
+    color: var(--ch-fg); border-radius: 10px; padding: 0 8px; background: none;
+    font: inherit; font-size: 11.5px; cursor: pointer;
+  }
+  .kchip .ksw { width: 28px; height: 12px; }
+  /* Scrolls both ways inside a window-high box, so the sticky name column and the
+     sticky ruler both have a scroller to stick to. */
+  .kscroll { overflow: auto; max-height: calc(100vh - 160px); border: 1px solid var(--edge); border-radius: 4px; }
+  .kr { display: flex; }
+  .kl {
+    position: sticky; left: 0; z-index: 1; flex: none; width: 260px;
+    display: flex; gap: 5px; align-items: center; padding: 0 6px;
+    background: var(--bg); border-right: 1px solid var(--edge);
+    font-size: 12px; white-space: nowrap; overflow: hidden;
+  }
+  .kl .kln { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .kl .grow { margin-left: auto; flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; }
+  .kruler { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--edge); }
+  .kruler .kl { z-index: 3; background: var(--panel); color: var(--dim); font-size: 11px; }
+  .klay { cursor: pointer; }
+  .klay:hover { background: #22262e; }
+  .kcar { flex: none; width: 9px; color: var(--dim); font-size: 11px; }
+  .kgp { flex: none; max-width: 90px; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+  .kdot { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--edge); }
+  .kfld .kl { padding-left: 24px; color: var(--dim); }
+  .kr.dim { opacity: .3; }
+  .kr.hot > .kl { box-shadow: inset 2px 0 var(--ch-fg); }
+  .ksvg { display: block; flex: none; }
+  .ksvg .kbar { fill: #2c313b; }
+  .kr.hot .ksvg .kbar { fill: #3b3527; }
+  .ksvg .kgd { stroke: #262a32; }
+  .ksvg .ktick { stroke: #4a505c; }
+  .ksvg .ktx { font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--dim); }
+  .ksvg .ksec { stroke: var(--ch-fg); stroke-width: 2; stroke-opacity: .7; }
+  .ksvg .knote { fill: var(--dim); }
+  .ksvg .kd { fill: var(--ch-fg); stroke: var(--bg); stroke-width: 1; }
+  .ksvg .kd:hover { fill: var(--fg); }
+  .ksvg .kcurve { fill: none; stroke: var(--ch-fg); stroke-width: 1.5; }
+  .ksvg .khold { fill: none; stroke: var(--ch-fg); stroke-opacity: .35; stroke-dasharray: 3 3; }
+  .ksvg .kexpr { stroke: var(--add-fg); stroke-dasharray: 2 3; }
+  .ksvg .kst { font: 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
   footer {
     border-top: 1px solid var(--edge); padding: 14px 24px;
     display: flex; gap: 14px; color: var(--dim); font-size: 12px;
@@ -359,6 +469,7 @@
   <button type="button" class="tab on" data-tab="changes">Changes</button>
   <button type="button" class="tab" data-tab="media">Media report</button>
   <button type="button" class="tab" data-tab="cues">Tags &amp; notes</button>
+  <button type="button" class="tab" data-tab="keys">Keyframes</button>
   <button type="button" class="tab" data-tab="transports">Transport info</button>
   <button type="button" class="tab" data-tab="system">System info</button>
 </nav>
@@ -381,6 +492,7 @@
   <div id="out"><p class="hint">Pick two snapshots to compare.</p></div>
   <div id="media" hidden></div>
   <div id="cues" hidden></div>
+  <div id="keys" hidden></div>
   <div id="transports" hidden></div>
   <div id="system" hidden></div>
 </main>
@@ -388,7 +500,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.7.0</span>
+  <span id="ver">v2.8.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -398,6 +510,15 @@ var snaps = { a: null, b: null };
 // Only the export reads these: it names its sources, and a capture's own fields
 // do not include the file it was read from.
 var names = { a: null, b: null };
+// The slot's snapshot line, built when the snapshot arrives and kept so the
+// slot label can be redrawn when a keyframes file joins it.
+var stamps = { a: '', b: '' };
+// Keyframes per slot, from a dropped .d3 or a _keyframes.json. keyNames holds
+// the file they came from when that was a separate file; keyErrors why an
+// archive's keyframes could not be read while its snapshot could.
+var keyDocs = { a: null, b: null };
+var keyNames = { a: null, b: null };
+var keyErrors = { a: null, b: null };
 
 function wire(dropId, inputId, slot) {
   var drop = document.getElementById(dropId), input = document.getElementById(inputId);
@@ -435,7 +556,12 @@ function captureTime(file) {
 }
 
 function loadFolder(files) {
-  var snapshots = files.filter(function (f) { return /\.json$/i.test(f.name); });
+  // The extractor writes <stamp>_<project>_keyframes.json beside each snapshot,
+  // with the snapshot's own stamp. Counted as a capture it sorts after its
+  // twin and becomes "the latest", diffing a snapshot against its own keyframes.
+  var snapshots = files.filter(function (f) {
+    return /\.json$/i.test(f.name) && !/_keyframes\.json$/i.test(f.name);
+  });
   if (snapshots.length < 2) {
     fail('need at least two .json snapshots in that folder — found ' + snapshots.length);
     return;
@@ -501,18 +627,32 @@ function readArchive(file, done) {
     file.arrayBuffer().then(function (buffer) {
       // The parse is synchronous; let "reading project" paint before it starts.
       setTimeout(function () {
+        var options = {
+          fileName: file.name,
+          capturedAt: X.localIso(new Date(file.lastModified || Date.now()))
+        };
+        var snap;
         try {
-          var snap = X.buildSnapshot(buffer, {
-            fileName: file.name,
-            capturedAt: X.localIso(new Date(file.lastModified || Date.now()))
-          });
-          done(null, JSON.parse(X.toJson(snap)));
+          snap = JSON.parse(X.toJson(X.buildSnapshot(buffer, options)));
         } catch (e) {
           done(e && e.name === 'ParseError'
             ? new Error('could not read this archive: ' + e.message + '. It may be from a ' +
                         'Designer version the extractor has not seen, or not a complete .d3 file.')
             : e);
+          return;
         }
+        // Keyframes are read on their own, after the snapshot has succeeded.
+        // They walk every track in the show rather than just the setlists', so
+        // one odd track can fail them alone -- and that should cost the
+        // Keyframes tab, not the four tabs that already have what they need.
+        // Through toJson for the same BigInt reason as the snapshot.
+        var keys = null, keyErr = null;
+        try {
+          keys = JSON.parse(X.toJson(X.buildKeyframes(buffer, options)));
+        } catch (e) {
+          keyErr = e && e.message ? e.message : String(e);
+        }
+        done(null, snap, keys, keyErr);
       }, 20);
     }, done);
   });
@@ -530,7 +670,7 @@ function load(file, slot, drop) {
     var was = { html: drop.innerHTML, filled: drop.classList.contains('filled') };
     drop.classList.add('filled');
     drop.innerHTML = esc(file.name) + '<span class="stamp">reading project…</span>';
-    readArchive(file, function (err, data) {
+    readArchive(file, function (err, data, keys, keyErr) {
       if (ticket !== loading[slot]) return;
       if (err) {
         // Put back whatever the slot still holds, or it claims a file it never took.
@@ -539,6 +679,12 @@ function load(file, slot, drop) {
         fail(file.name + ': ' + err.message);
         return;
       }
+      // An archive always replaces the slot's keyframes with its own, even with
+      // none: keyframes from another file sitting under this snapshot would
+      // draw one show's animation against another show's cues.
+      keyDocs[slot] = keys;
+      keyNames[slot] = null;
+      keyErrors[slot] = keyErr;
       accept(data);
     });
     return;
@@ -547,10 +693,25 @@ function load(file, slot, drop) {
   var reader = new FileReader();
   reader.onload = function () {
     if (ticket !== loading[slot]) return;
-    try { accept(JSON.parse(reader.result)); }
-    catch (e) { fail(file.name + ': ' + e.message); }
+    var data;
+    try { data = JSON.parse(reader.result); }
+    catch (e) { fail(file.name + ': ' + e.message); return; }
+    if (data && data.format === 'd3_keyframes') acceptKeys(data);
+    else accept(data);
   };
   reader.readAsText(file);
+
+  /* A keyframes file rides along with whatever snapshot the slot holds rather
+   * than replacing it: it has no cues, timecode or media of its own, so on its
+   * own it could fill one tab and would blank the other five. */
+  function acceptKeys(data) {
+    keyDocs[slot] = data;
+    keyNames[slot] = file.name;
+    keyErrors[slot] = null;
+    drop.classList.add('filled');
+    paintSlot(slot, drop);
+    render();
+  }
 
   function accept(data) {
     try {
@@ -573,9 +734,16 @@ function load(file, slot, drop) {
         throw new Error('schema v' + data.schemaVersion + ' is not comparable — ' +
                         'this viewer reads v6 and v7. Re-capture with the current plugin.');
       }
+      // A snapshot .json keeps a keyframes file already on the slot only when
+      // both name the same project -- dropping the pair in either order then
+      // works. Anything else is another show's animation and is let go.
+      if (!archive && keyDocs[slot] && keyDocs[slot].project !== data.project) {
+        keyDocs[slot] = null;
+        keyNames[slot] = null;
+        keyErrors[slot] = null;
+      }
       snaps[slot] = data;
       names[slot] = file.name;
-      drop.classList.add('filled');
       // The build belongs on the slot itself, not in a tab: it qualifies every
       // number the capture reports, so it has to stay visible whichever tab is
       // open. The drop zones sit above the tab bar, which is what makes this
@@ -584,15 +752,33 @@ function load(file, slot, drop) {
       // An archive stores neither a project name nor a capture time, so both are
       // stand-ins there, and the tooltip says so: a project line that differs
       // from a plugin capture's is the file name talking, not a rename.
-      drop.innerHTML = esc(file.name) + '<span class="stamp"' +
+      stamps[slot] = '<span class="stamp"' +
         (archive ? ' title="Read from a .d3 archive, which stores no project name or ' +
                    'capture time: the project is the file name and the time is when ' +
                    'the file was last saved."' : '') + '>' +
         esc(data.project || '?') + ' · ' + esc(data.capturedAt || '') +
         ' · ' + esc(buildOf(data)) + '</span>';
+      drop.classList.add('filled');
+      paintSlot(slot, drop);
       render();
     } catch (e) { fail(file.name + ': ' + e.message); }
   }
+}
+
+/* The slot's label: the snapshot line, then a keyframes line when the slot
+ * carries keyframes -- named by file when they came from one, since a
+ * keyframes file dropped beside a snapshot is a pairing the user made and the
+ * label is where they check it. */
+function paintSlot(slot, drop) {
+  var html = esc(names[slot] || keyNames[slot] || '');
+  html += snaps[slot] ? stamps[slot] : '<span class="stamp">no snapshot — keyframes only</span>';
+  var k = keyDocs[slot];
+  if (k) {
+    html += '<span class="stamp">keyframes' +
+      (keyNames[slot] && names[slot] ? ' from ' + esc(keyNames[slot]) : '') +
+      ' · ' + esc(Number(k.keyCount || 0).toLocaleString()) + ' keys</span>';
+  }
+  drop.innerHTML = html;
 }
 
 /* The Designer build, short enough for a header line. Falls back to '—' rather
@@ -1042,6 +1228,578 @@ function paintCues() {
     : '<p class="empty">Nothing matches \u201c' + esc(query) + '\u201d.</p>';
 }
 
+/* Keyframes ----------------------------------------------------------------
+ * ~5,700 keys on ~2,200 parameters is past what any list can show, so this tab
+ * is three views that hand off to each other: a grid of every track against the
+ * kinds of parameter that move (where is the animation), a timeline of one
+ * track (what moves when), and the show's CDLs as colour (what each grade does
+ * and where it is used). Picking in the grid or the CDL list drives the
+ * timeline; nothing here scrolls a thousand rows at you.
+ */
+var lastKeys = null, keySource = null;
+// col is an index into lastKeys.columns; cdl is a CDL ref; open maps
+// "track|layer" to an expanded layer.
+var kf = { track: null, col: null, cdl: null, zoom: 1, open: {}, allOpen: false };
+var KF_LABEL = 260;              // px: the timeline's sticky name column
+var KF_SIDE = 420;               // px: the grid and CDL column, see .kf
+var KF_ZOOMS = [1, 2, 4, 8, 16];
+
+// Drop a selection the new report cannot honour instead of drawing an empty
+// timeline for a track or CDL that is no longer there.
+function keysSettle() {
+  if (!lastKeys) return;
+  var ids = lastKeys.tracks.map(function (t) { return t.id; });
+  if (ids.indexOf(kf.track) < 0) kf.track = ids.length ? ids[0] : null;
+  if (kf.col !== null && kf.col >= lastKeys.columns.length) kf.col = null;
+  lastKeys.cdlByRef = {};
+  lastKeys.cdls.forEach(function (c) { lastKeys.cdlByRef[c.ref] = c; });
+  if (kf.cdl && !lastKeys.cdlByRef[kf.cdl]) kf.cdl = null;
+  lastKeys.tracks.forEach(function (t) {
+    var refs = [];
+    t.layers.forEach(function (l) {
+      l.cdls.forEach(function (r) { if (refs.indexOf(r) < 0) refs.push(r); });
+    });
+    t.cdlRefs = refs;
+  });
+}
+
+function kfTrackHay(t) { return (plain(t.id) + ' ' + plain(t.name)).toLowerCase(); }
+function kfLayerHay(l) {
+  return (l.group.join(' / ') + ' ' + plain(l.rawName) + ' ' + plain(l.type)).toLowerCase();
+}
+// Resource values are in the haystack because the row prints them: searching
+// a CDL or clip name is how you find every layer that switches to it.
+function kfFieldHay(f) {
+  var vals = f.numeric ? '' : f.keys.map(function (k) { return plain(k.value); }).join(' ');
+  if (!f.numeric && f['default'] !== null) vals += ' ' + plain(f['default']);
+  return (plain(f.display) + ' ' + plain(f.name) + ' ' + f.family + ' ' + vals + ' ' +
+          plain(f.expression)).toLowerCase();
+}
+
+/* How many of a track's parameters the search hits. A track whose own name
+ * matches counts all of them -- the same bargain as the other reports, where a
+ * track you searched for is worth seeing entire. */
+function kfHits(t) {
+  if (!query) return t.fieldCount;
+  var th = kfTrackHay(t);
+  if (hitsText(th)) return t.fieldCount;
+  var n = 0;
+  t.layers.forEach(function (l) {
+    var lh = th + ' ' + kfLayerHay(l);
+    if (hitsText(lh)) { n += l.fields.length; return; }
+    l.fields.forEach(function (f) { if (hitsText(lh + ' ' + kfFieldHay(f))) n++; });
+  });
+  return n;
+}
+
+// What the timeline draws of a track under the search and the column filter.
+function kfRows(t) {
+  var col = kf.col === null ? null : lastKeys.columns[kf.col];
+  var th = kfTrackHay(t);
+  var trackHit = !query || hitsText(th);
+  var out = [];
+  t.layers.forEach(function (l, i) {
+    var lh = th + ' ' + kfLayerHay(l);
+    var layerHit = trackHit || hitsText(lh);
+    var fields = l.fields.filter(function (f) {
+      if (col && col.members.indexOf(f.family) < 0) return false;
+      return layerHit || hitsText(lh + ' ' + kfFieldHay(f));
+    });
+    if (!fields.length) return;
+    out.push({ layer: l, key: t.id + '|' + (l.id || '@' + i), fields: fields,
+               hot: kf.cdl ? l.cdls.indexOf(kf.cdl) >= 0 : null });
+  });
+  return out;
+}
+
+function kfSwatch(sw) {
+  if (!sw) return '<span class="ksw none" title="The values of this CDL are not available"></span>';
+  return '<span class="ksw"><i style="background:linear-gradient(90deg,' + sw.grey.join(',') +
+         ')"></i><i style="background:linear-gradient(90deg,' + sw.hue.join(',') + ')"></i></span>';
+}
+
+function kfTriplet(v) { return v ? v.map(function (x) { return fmt(x); }).join(' ') : '—'; }
+
+function kfCdlTitle(c) {
+  if (c.error) return c.name + ': ' + c.error;
+  return c.name + (c.source === 'ccFile' ? ' (imported .cc)' : ' (made in Designer)') +
+    '\nslope ' + kfTriplet(c.slope) + '\npower ' + kfTriplet(c.power) +
+    '\noffset ' + kfTriplet(c.offset) + '\nsaturation ' + fmt(c.saturation) +
+    '\nSwatch: this CDL on a grey ramp and a hue ramp, without Designer’s colour ' +
+    'space transforms -- the direction of the grade, not its exact look.';
+}
+
+/* The grid. Shaded per column, on a log scale: brightness alone holds half the
+ * show's keys, and one shared scale left every other column a row of blanks. The
+ * CDL column is coloured by the grades themselves rather than by count, since
+ * "which look is on this song" is the question it gets asked. */
+function kfGrid(tracks) {
+  var cols = lastKeys.columns;
+  var max = cols.map(function (c, i) {
+    var m = 1;
+    lastKeys.tracks.forEach(function (t) { m = Math.max(m, t.cells[i].keys); });
+    return m;
+  });
+  var head = '<tr><th class="kgt">track</th>' + cols.map(function (c, i) {
+    var what = c.family === 'other' ? 'Everything outside the named columns: ' + c.members.join(', ')
+      : c.family === 'Notch' ? 'Notch and RenderStream parameters' : c.family;
+    return '<th class="kgh' + (kf.col === i ? ' on' : '') + '" data-colh="' + i + '" title="' +
+      esc(what + '\n' + plural(c.fields, 'parameter') + ', ' + plural(c.keys, 'key') +
+          ' in the show. Click to show only these on the timeline.') +
+      '"><span>' + esc(c.family) + '</span></th>';
+  }).join('') + '</tr>';
+
+  var body = tracks.map(function (t) {
+    var dim = kf.cdl && t.cdlRefs.indexOf(kf.cdl) < 0;
+    return '<tr class="kgr' + (t.id === kf.track ? ' on' : '') + (dim ? ' dim' : '') +
+      '" data-track="' + esc(t.id) + '"><td class="kgt" title="' +
+      esc(t.name + '\n' + plural(t.keyCount, 'key') + ' on ' + plural(t.fieldCount, 'parameter')) +
+      '">' + markup(t.name) + '</td>' + cols.map(function (c, i) {
+        var cell = t.cells[i], on = kf.col === i ? ' con' : '';
+        if (!cell.keys) return '<td class="kgc' + on + '" data-col="' + i + '"></td>';
+        var style, ink;
+        if (c.family === 'cdl' && t.cdlRefs.length) {
+          var mids = t.cdlRefs.map(function (r) {
+            var cd = lastKeys.cdlByRef[r];
+            return cd && cd.swatch ? cd.swatch.mid : '#3a3f4a';
+          });
+          if (mids.length === 1) mids.push(mids[0]);
+          style = 'background:linear-gradient(90deg,' + mids.join(',') + ')';
+          ink = '#e6e8ec';
+        } else {
+          var a = 0.18 + 0.82 * Math.log(1 + cell.keys) / Math.log(1 + max[i]);
+          style = 'background:rgba(215,164,95,' + a.toFixed(2) + ')';
+          ink = a > 0.6 ? '#1b1d22' : '#e6e8ec';
+        }
+        var names = c.family === 'cdl' ? '\n' + t.cdlRefs.map(function (r) {
+          var cd = lastKeys.cdlByRef[r];
+          return cd ? cd.name : r;
+        }).join(', ') : '';
+        return '<td class="kgc' + on + '" data-col="' + i + '" style="' + style + ';color:' + ink +
+          '" title="' + esc(t.name + ' · ' + c.family + '\n' + plural(cell.fields, 'parameter') +
+          ', ' + plural(cell.keys, 'key') + names) + '">' +
+          (cell.keys > 999 ? '1k+' : cell.keys) + '</td>';
+      }).join('') + '</tr>';
+  }).join('');
+  return '<table class="kgrid">' + head + body + '</table>';
+}
+
+function kfCdlList() {
+  var list = lastKeys.cdls.filter(function (c) {
+    return !query || hitsText((c.name + ' ' + c.ref + ' ' + c.source).toLowerCase()) ||
+           c.ref === kf.cdl;
+  });
+  if (!lastKeys.cdls.length) return '<p class="note">No layer in this show applies a CDL.</p>';
+  if (!list.length) return '<p class="note">No CDL matches the search.</p>';
+  return list.map(function (c) {
+    var on = c.ref === kf.cdl;
+    var html = '<div class="kcdl' + (on ? ' on' : '') + '" data-cdl="' + esc(c.ref) + '" title="' +
+      esc(kfCdlTitle(c)) + '">' + kfSwatch(c.swatch) +
+      '<span class="kcn">' + markup(c.name) + '</span>' +
+      '<span class="kcs" title="' + (c.source === 'ccFile' ? 'imported ASC .cc file' : 'made in Designer') +
+      '">' + (c.source === 'ccFile' ? '.cc' : 'd3') + '</span>' +
+      (c.identity ? '<span class="kcs">identity</span>' : '') +
+      '<span class="grow of">' + plural(c.layers, 'layer') + ' · ' +
+      plural(c.tracks.length, 'track') + '</span></div>';
+    if (on) {
+      html += '<div class="kcv">' + (c.error ? esc(c.error) :
+        'slope <b>' + esc(kfTriplet(c.slope)) + '</b><br>power <b>' + esc(kfTriplet(c.power)) +
+        '</b><br>offset <b>' + esc(kfTriplet(c.offset)) + '</b><br>saturation <b>' +
+        esc(fmt(c.saturation)) + '</b>') + '<div class="kct">' + c.tracks.map(function (id) {
+          var t = lastKeys.tracks.filter(function (x) { return x.id === id; })[0];
+          return '<button type="button" class="kbtn" data-track="' + esc(id) + '">' +
+                 esc(t ? t.name : id) + '</button>';
+        }).join('') + '</div></div>';
+    }
+    return html;
+  }).join('');
+}
+
+// A tick every half second up to every hour, whichever first leaves 70 px
+// between labels.
+var KF_STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+
+function kfTime(t, s) {
+  var tc = timecodeAt(t, s);
+  return clock(s) + ' (' + fmt(s) + ' s)' + (tc ? ' · TC ' + tc : '');
+}
+
+function kfValue(v) {
+  if (v === null || v === undefined) return 'none';
+  if (typeof v === 'number') return fmt(v);
+  var c = lastKeys.cdlByRef[v];
+  return c ? c.name : String(v).split('/').pop();
+}
+
+// Clip and string values get a stable colour of their own, so the same clip
+// reads as the same block wherever it recurs on a track.
+function kfHue(s) {
+  var h = 0;
+  for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return 'hsl(' + h + ',32%,34%)';
+}
+
+function kfTimeline(t, width) {
+  var rows = kfRows(t);
+  var W = Math.max(200, Math.round(width * kf.zoom));
+  var span = t.end - t.start, pps = W / span;
+  function x(s) { return ((s - t.start) * pps).toFixed(1); }
+  var sections = t.cues.filter(function (c) { return c.isSection; });
+  function guides(h) {
+    return sections.map(function (c) {
+      return '<line class="kgd" x1="' + x(c.t) + '" x2="' + x(c.t) + '" y1="0" y2="' + h + '"/>';
+    }).join('');
+  }
+  function svg(h, body) {
+    return '<svg class="ksvg" width="' + W + '" height="' + h + '">' + guides(h) + body + '</svg>';
+  }
+  function diamond(px, cy, cls, title) {
+    return '<path class="' + cls + '" d="M' + px + ',' + (cy - 4) + 'l4,4 -4,4 -4,-4z"><title>' +
+           esc(title) + '</title></path>';
+  }
+
+  var step = KF_STEPS[KF_STEPS.length - 1];
+  for (var i = 0; i < KF_STEPS.length; i++) if (KF_STEPS[i] * pps >= 70) { step = KF_STEPS[i]; break; }
+  var ruler = '';
+  for (var s = Math.ceil(t.start / step) * step; s <= t.end; s += step) {
+    ruler += '<line class="ktick" x1="' + x(s) + '" x2="' + x(s) + '" y1="18" y2="26"/>' +
+             '<text class="ktx" x="' + (+x(s) + 3) + '" y="15">' + esc(clock(s)) + '</text>';
+  }
+  t.cues.forEach(function (c) {
+    var what = [];
+    if (c.note) what.push(c.note);
+    c.tags.forEach(function (g) { what.push(g.type + ' ' + g.text); });
+    if (!c.isSection && !what.length) return;
+    var title = (c.isSection ? 'section' : 'cue') + ' · ' + kfTime(t, c.t) +
+                (what.length ? '\n' + what.join('\n') : '');
+    ruler += c.isSection
+      ? '<line class="ksec" x1="' + x(c.t) + '" x2="' + x(c.t) + '" y1="0" y2="26"><title>' +
+        esc(title) + '</title></line>'
+      : '<path class="knote" d="M' + x(c.t) + ',26l-4,-6h8z"><title>' + esc(title) + '</title></path>';
+  });
+
+  var html = '<div class="kr kruler"><div class="kl">' +
+    (t.anchors.length ? 'time · hover for TC' : 'time') + '</div>' + svg(26, ruler) + '</div>';
+
+  rows.forEach(function (r) {
+    var l = r.layer;
+    var open = kf.allOpen || !!kf.open[r.key] || !!query || kf.col !== null;
+    var cls = 'kr' + (r.hot === true ? ' hot' : r.hot === false ? ' dim' : '');
+    var body = '';
+    if (l.tStart !== null && l.tEnd !== null) {
+      body += '<rect class="kbar" x="' + x(l.tStart) + '" y="5" rx="2" height="12" width="' +
+        Math.max(1, (l.tEnd - l.tStart) * pps).toFixed(1) + '"><title>' +
+        esc(l.name + '\n' + kfTime(t, l.tStart) + ' – ' + kfTime(t, l.tEnd)) + '</title></rect>';
+    }
+    // The layer's CDL as a strip along the foot of its bar, so the grade reads
+    // on the collapsed row without opening it.
+    r.fields.forEach(function (f) {
+      if (!f.isCdl) return;
+      kfSegments(f, l, t).forEach(function (sg) {
+        var c = lastKeys.cdlByRef[sg.value];
+        body += '<rect x="' + x(sg.from) + '" y="14" height="4" width="' +
+          Math.max(1, (sg.to - sg.from) * pps).toFixed(1) + '" style="fill:' +
+          (c && c.swatch ? c.swatch.mid : '#555') + '"><title>' +
+          esc('CDL ' + kfValue(sg.value) + '\n' + kfTime(t, sg.from) + ' – ' + kfTime(t, sg.to)) +
+          '</title></rect>';
+      });
+    });
+    var at = {};
+    r.fields.forEach(function (f) {
+      f.keys.forEach(function (k) {
+        if (typeof k.t !== 'number') return;
+        (at[k.t] = at[k.t] || []).push(f.display + ' ' + kfValue(k.value));
+      });
+    });
+    Object.keys(at).forEach(function (k) {
+      body += diamond(x(+k), 11, 'kd', kfTime(t, +k) + '\n' + at[k].join('\n'));
+    });
+    var group = l.group.length ? '<span class="kgp">' + markup(l.group.join(' / ')) + ' /</span> ' : '';
+    var dot = '';
+    if (l.cdls.length) {
+      var c0 = lastKeys.cdlByRef[l.cdls[0]];
+      dot = '<span class="kdot" style="background:' + (c0 && c0.swatch ? c0.swatch.mid : '#555') + '"></span>';
+    }
+    html += '<div class="' + cls + '"><div class="kl klay" data-layer="' + esc(r.key) + '" title="' +
+      esc(l.group.concat([l.name]).join(' / ') + '\n' + plain(l.type) +
+          (l.notchBlock ? '\n' + l.notchBlock : '') + '\n' + plural(l.keyCount, 'key')) + '">' +
+      '<span class="kcar">' + (open ? '▾' : '▸') + '</span>' + group +
+      '<span class="kln">' + markup(l.name) + '</span>' + dot + '</div>' + svg(22, body) + '</div>';
+
+    if (!open) return;
+    r.fields.forEach(function (f) {
+      html += '<div class="' + cls + ' kfld">' + kfFieldLabel(f) +
+        (f.numeric ? svg(34, kfCurve(f, l, t, x, diamond)) : svg(20, kfBlocks(f, l, t, x, pps, diamond))) +
+        '</div>';
+    });
+  });
+  if (!rows.length) {
+    html += '<p class="note kpad">Nothing on this track matches' +
+            (kf.col !== null ? ' the ' + esc(lastKeys.columns[kf.col].family) + ' column' : '') +
+            (query ? (kf.col !== null ? ' and' : '') + ' the search' : '') + '.</p>';
+  }
+  return '<div class="kscroll"><div class="ktl" style="width:' + (W + KF_LABEL) + 'px">' +
+         html + '</div></div>';
+}
+
+function kfFieldLabel(f) {
+  var range = f.expression ? 'expression'
+    : f.numeric && f.min !== null ? fmt(f.min) + (f.max !== f.min ? ' – ' + fmt(f.max) : '') : '';
+  return '<div class="kl" title="' + esc(f.display + (f.label && f.label !== f.name ? '\n' + f.name : '') +
+    '\n' + plain(f.valueType) + ' · ' + plural(f.keys.length, 'key') +
+    (f.expression ? '\nexpression: ' + f.expression : '') + '\nDefault ' + kfValue(f['default']) +
+    '\nInterpolation names are inferred, not confirmed in Designer.') + '">' +
+    '<span class="kln">' + markup(f.display) + '</span><span class="grow of">' + esc(range) + '</span></div>';
+}
+
+/* A resource parameter as blocks: each key's value holds until the next key,
+ * and the last one to the layer's end. A key of none ends a block rather than
+ * starting one. With no keys at all, the default holds for the layer. */
+function kfSegments(f, l, t) {
+  var end = l.tEnd !== null ? Math.max(l.tEnd, t.start) : t.end;
+  var keys = f.keys.filter(function (k) { return typeof k.t === 'number'; });
+  if (!keys.length) {
+    return f['default'] !== null && l.tStart !== null
+      ? [{ from: l.tStart, to: end, value: f['default'] }] : [];
+  }
+  var out = [];
+  keys.forEach(function (k, i) {
+    if (k.value === null) return;
+    var to = i + 1 < keys.length ? keys[i + 1].t : Math.max(end, k.t);
+    if (to > k.t) out.push({ from: k.t, to: to, value: k.value });
+  });
+  return out;
+}
+
+// Label ink for a block. A grade like 250_seek_imag is near white, and the
+// light text every other block wears vanished on it.
+function kfInk(fill) {
+  var m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(fill);
+  if (!m) return '#e6e8ec';
+  var y = 0.2126 * parseInt(m[1], 16) + 0.7152 * parseInt(m[2], 16) + 0.0722 * parseInt(m[3], 16);
+  return y > 140 ? '#16181d' : '#e6e8ec';
+}
+
+function kfBlocks(f, l, t, x, pps, diamond) {
+  var body = '';
+  kfSegments(f, l, t).forEach(function (sg) {
+    var c = f.isCdl ? lastKeys.cdlByRef[sg.value] : null;
+    var fill = f.isCdl ? (c && c.swatch ? c.swatch.mid : '#555') : kfHue(String(sg.value));
+    var w = Math.max(1, (sg.to - sg.from) * pps);
+    body += '<svg x="' + x(sg.from) + '" y="3" width="' + w.toFixed(1) + '" height="14">' +
+      '<rect width="100%" height="14" rx="2" style="fill:' + fill + '"/>' +
+      (w > 36 ? '<text class="kst" x="4" y="11" style="fill:' + kfInk(fill) + '">' +
+                esc(kfValue(sg.value)) + '</text>' : '') +
+      '<title>' + esc(f.display + ' ' + kfValue(sg.value) + '\n' + kfTime(t, sg.from) + ' – ' +
+                      kfTime(t, sg.to)) + '</title></svg>';
+  });
+  f.keys.forEach(function (k) {
+    if (typeof k.t !== 'number') return;
+    body += diamond(x(k.t), 10, 'kd small', f.display + ' → ' + kfValue(k.value) + '\n' +
+                    kfTime(t, k.t) + (k.interpolation ? '\n' + k.interpolation : ''));
+  });
+  return body;
+}
+
+/* A numeric parameter as its curve. Each segment takes the interpolation of the
+ * key it leaves, which is how the names read (a step key holds until the next)
+ * but is inferred, like the names themselves. Before the first key and after the
+ * last the value holds, drawn faint out to the layer's edges. */
+function kfCurve(f, l, t, x, diamond) {
+  var keys = f.keys.filter(function (k) { return typeof k.t === 'number' && typeof k.value === 'number'; });
+  var top = 5, bot = 29;
+  function y(v) {
+    return (f.max === f.min ? (top + bot) / 2 : bot - (v - f.min) / (f.max - f.min) * (bot - top)).toFixed(1);
+  }
+  var body = '';
+  if (f.expression) {
+    body += '<line class="kexpr" x1="0" x2="100%" y1="17" y2="17"><title>' +
+            esc('expression: ' + f.expression) + '</title></line>';
+  }
+  if (!keys.length) return body;
+  var first = keys[0], last = keys[keys.length - 1];
+  if (l.tStart !== null && l.tStart < first.t) {
+    body += '<path class="khold" d="M' + x(l.tStart) + ',' + y(first.value) + 'H' + x(first.t) + '"/>';
+  }
+  if (l.tEnd !== null && l.tEnd > last.t) {
+    body += '<path class="khold" d="M' + x(last.t) + ',' + y(last.value) + 'H' + x(l.tEnd) + '"/>';
+  }
+  var d = 'M' + x(first.t) + ',' + y(first.value);
+  for (var i = 1; i < keys.length; i++) {
+    var a = keys[i - 1], b = keys[i];
+    var x0 = +x(a.t), x1 = +x(b.t);
+    if (a.interpolation === 'step') d += 'H' + x1 + 'V' + y(b.value);
+    else if (a.interpolation === 'smooth') {
+      var mid = ((x0 + x1) / 2).toFixed(1);
+      d += 'C' + mid + ',' + y(a.value) + ' ' + mid + ',' + y(b.value) + ' ' + x1 + ',' + y(b.value);
+    } else d += 'L' + x1 + ',' + y(b.value);
+  }
+  body += '<path class="kcurve" d="' + d + '"/>';
+  keys.forEach(function (k) {
+    body += diamond(x(k.t), +y(k.value), 'kd', f.display + ' = ' + fmt(k.value) + '\n' +
+                    kfTime(t, k.t) + (k.interpolation ? '\n' + k.interpolation : ''));
+  });
+  return body;
+}
+
+function kfTrackPanel(t, width) {
+  var meta = [];
+  if (t.lengthInSec !== null) meta.push(clock(t.lengthInSec));
+  if (t.bpm !== null) meta.push(t.bpm + ' bpm');
+  meta.push(plural(t.layers.length, 'layer'), plural(t.keyCount, 'key'));
+  if (t.cdlLayers) meta.push(t.cdlLayers + ' graded');
+  var chips = '';
+  if (kf.col !== null) {
+    chips += '<button type="button" class="kchip" data-clear="col" title="Show every parameter">' +
+             esc(lastKeys.columns[kf.col].family) + ' ×</button>';
+  }
+  if (kf.cdl) {
+    var c = lastKeys.cdlByRef[kf.cdl];
+    chips += '<button type="button" class="kchip" data-clear="cdl" title="Stop highlighting this CDL">' +
+             kfSwatch(c && c.swatch) + esc(c ? c.name : kf.cdl) + ' ×</button>';
+  }
+  var zoom = KF_ZOOMS.map(function (z) {
+    return '<button type="button" class="kbtn' + (kf.zoom === z ? ' on' : '') + '" data-zoom="' + z + '">' +
+           (z === 1 ? 'fit' : z + '×') + '</button>';
+  }).join('');
+  var why = [];
+  if (!t.inSnapshot) why.push('Not on any setlist in the snapshot, so there are no cue markers or timecode.');
+  if (t.trashed) why.push('This track is in the trash.');
+  return '<div class="kfhead"><span class="tpname">' + markup(t.name) + '</span>' +
+    '<span class="of">' + esc(meta.join(' · ')) + '</span>' + chips +
+    '<span class="grow kzoom">' + zoom +
+    '<button type="button" class="kbtn" data-all="1">' + (kf.allOpen ? 'collapse all' : 'expand all') +
+    '</button></span></div>' +
+    why.map(function (w) { return '<p class="note">' + esc(w) + '</p>'; }).join('') +
+    kfTimeline(t, width);
+}
+
+// Room left for the timeline's time axis once the side column and the sticky
+// label column are paid for. Measured, not assumed: "fit" means the whole track
+// in the window you actually have.
+function kfWidth() {
+  var box = document.getElementById('keys');
+  var cw = box.clientWidth || 1200;
+  var side = window.matchMedia('(max-width: 1100px)').matches ? 0 : KF_SIDE + 20;
+  return Math.max(320, cw - side - KF_LABEL - 4);
+}
+
+function paintKeys() {
+  var out = document.getElementById('keys');
+  var count = document.getElementById('matches');
+  count.textContent = '';
+
+  if (!lastKeys) {
+    var errs = ['a', 'b'].filter(function (s) { return keyErrors[s]; }).map(function (s) {
+      return '<p class="err">Keyframes could not be read from ' + esc(names[s]) + ': ' +
+             esc(keyErrors[s]) + '</p>';
+    }).join('');
+    out.innerHTML = errs + '<p class="hint">Drop a <code>.d3</code> on Before or After to explore ' +
+      'its keyframes. A snapshot <code>.json</code> does not carry them; the ' +
+      '<code>_keyframes.json</code> the project extractor writes drops on a box the same way, ' +
+      'beside its snapshot.</p>';
+    return;
+  }
+  if (!lastKeys.tracks.length) {
+    out.innerHTML = '<p class="empty">Nothing in this show is animated.</p>';
+    return;
+  }
+
+  var shown = lastKeys.tracks, hits = 0;
+  if (query) {
+    shown = lastKeys.tracks.filter(function (t) {
+      var n = kfHits(t);
+      hits += n;
+      return n > 0;
+    });
+    count.textContent = hits ? plural(hits, 'match') : 'no matches';
+  }
+  if (!shown.length) {
+    out.innerHTML = '<p class="empty">Nothing matches “' + esc(query) + '”.</p>';
+    return;
+  }
+  // A search that hides the picked track moves the timeline to the first track
+  // it does keep, so the right-hand side never shows something the left denies.
+  var track = shown.filter(function (t) { return t.id === kf.track; })[0] || shown[0];
+
+  var scroller = out.querySelector('.kscroll');
+  var keep = scroller && out.getAttribute('data-shown') === track.id + '|' + kf.zoom
+    ? { left: scroller.scrollLeft, top: scroller.scrollTop } : null;
+
+  var notes = lastKeys.notes.concat(keySource && !snaps[keySource]
+    ? ['No snapshot sits beside these keyframes, so there are no cue markers or timecode.'] : []);
+  out.innerHTML = notes.map(function (n) { return '<p class="note kpad">' + esc(n) + '</p>'; }).join('') +
+    '<div class="kf"><aside class="kfside">' +
+    '<section class="tp"><div class="tphead"><span class="tpname">Where things move</span>' +
+    '<span class="grow of">' + plural(shown.length, 'track') + '</span></div>' + kfGrid(shown) +
+    '<p class="note">Keys per track and kind of parameter. Click a track to open its timeline, ' +
+    'a cell or a heading to show only that kind.</p></section>' +
+    '<section class="tp"><div class="tphead"><span class="tpname">CDLs</span>' +
+    '<span class="grow of">' + plural(lastKeys.cdls.length, 'CDL') + ' on ' +
+    plural(lastKeys.totals.cdlLayers, 'layer') + '</span></div>' + kfCdlList() + '</section>' +
+    '</aside><section class="kfmain">' + kfTrackPanel(track, kfWidth()) + '</section></div>';
+  out.setAttribute('data-shown', track.id + '|' + kf.zoom);
+
+  if (keep) {
+    var s = out.querySelector('.kscroll');
+    s.scrollLeft = keep.left;
+    s.scrollTop = keep.top;
+  }
+}
+
+function keysClick(e) {
+  var el = e.target.closest ? e.target.closest('[data-track],[data-col],[data-colh],[data-cdl],' +
+    '[data-layer],[data-zoom],[data-all],[data-clear]') : null;
+  if (!el) return;
+  var v;
+  if ((v = el.getAttribute('data-col')) !== null) {
+    // A cell picks its track and its column together; the same cell again
+    // clears the column, the one gesture undoing the other.
+    var row = el.closest('[data-track]');
+    var same = kf.col === +v && row && row.getAttribute('data-track') === kf.track;
+    if (row) kf.track = row.getAttribute('data-track');
+    kf.col = same ? null : +v;
+  } else if ((v = el.getAttribute('data-colh')) !== null) {
+    kf.col = kf.col === +v ? null : +v;
+  } else if ((v = el.getAttribute('data-track')) !== null) {
+    kf.track = v;
+  } else if ((v = el.getAttribute('data-cdl')) !== null) {
+    kf.cdl = kf.cdl === v ? null : v;
+    // Picking a CDL the open track does not use moves to one that does:
+    // highlighting nothing would look like the pick failed.
+    var c = kf.cdl && lastKeys.cdlByRef[kf.cdl];
+    if (c && c.tracks.indexOf(kf.track) < 0 && c.tracks.length) kf.track = c.tracks[0];
+  } else if ((v = el.getAttribute('data-layer')) !== null) {
+    if (kf.open[v]) delete kf.open[v]; else kf.open[v] = true;
+  } else if ((v = el.getAttribute('data-zoom')) !== null) {
+    zoomKeys(+v);
+    return;
+  } else if (el.getAttribute('data-all') !== null) {
+    kf.allOpen = !kf.allOpen;
+    if (!kf.allOpen) kf.open = {};
+  } else if ((v = el.getAttribute('data-clear')) !== null) {
+    kf[v] = null;
+  }
+  paintKeys();
+}
+
+// Zoom about the middle of what is on screen, so a zoom lands on the passage
+// being looked at rather than throwing the view back to the top of the song.
+function zoomKeys(z) {
+  var s = document.querySelector('#keys .kscroll');
+  var frac = null;
+  if (s) {
+    var w = s.scrollWidth - KF_LABEL;
+    frac = w > 0 ? (s.scrollLeft + (s.clientWidth - KF_LABEL) / 2) / w : null;
+  }
+  kf.zoom = z;
+  paintKeys();
+  s = document.querySelector('#keys .kscroll');
+  if (s && frac !== null) {
+    s.scrollLeft = Math.max(0, frac * (s.scrollWidth - KF_LABEL) - (s.clientWidth - KF_LABEL) / 2);
+  }
+}
+
 /* Transport report ---------------------------------------------------------
  * What each transport is loaded with: its setlist, and the tracks on it in
  * running order. The other half of what the media report used to conflate.
@@ -1387,6 +2145,13 @@ function render() {
   lastSystem = only ? systemReport(only) : null;
   systemExpanded = false;
 
+  // Keyframes follow the same After-then-Before rule, but on their own: a
+  // snapshot .json carries none, so the slot with keyframes may not be the slot
+  // the other tabs read. The snapshot beside them is only for cue markers.
+  keySource = keyDocs.b ? 'b' : (keyDocs.a ? 'a' : null);
+  lastKeys = keySource ? keyframeReport(keyDocs[keySource], snaps[keySource]) : null;
+  keysSettle();
+
   if (snaps.a && snaps.b) {
     lastResult = diffSnapshots(snaps.a, snaps.b);
     // A new pair starts unfolded. Carrying folds across would hide whatever the
@@ -1420,6 +2185,7 @@ var PLACEHOLDER = {
   changes: 'Search changes… (name, field, value)',
   media: 'Search media… (track, file, version)',
   cues: 'Search cues… (track, tag, note)',
+  keys: 'Search keyframes… (track, layer, parameter, CDL)',
   transports: 'Search transports… (transport, setlist, track)',
   system: 'Search switches… (name, value)'
 };
@@ -1438,6 +2204,7 @@ function setTab(name) {
   document.getElementById('out').hidden = !changes;
   document.getElementById('media').hidden = tab !== 'media';
   document.getElementById('cues').hidden = tab !== 'cues';
+  document.getElementById('keys').hidden = tab !== 'keys';
   document.getElementById('transports').hidden = tab !== 'transports';
   document.getElementById('system').hidden = tab !== 'system';
   // The summary and the notes describe the diff, so they belong to its tab.
@@ -1451,6 +2218,7 @@ function setTab(name) {
   var m = lastReport ? lastReport.totals : null;
   var t = lastTransports ? lastTransports.totals : null;
   var q = lastCues ? lastCues.totals : null;
+  var k = lastKeys ? lastKeys.totals : null;
   // Name the slot only when it is Before. After is the documented default, so
   // labelling it every time is noise; reading Before is the surprising case and
   // silence there would let someone attribute the numbers to the wrong capture.
@@ -1463,6 +2231,11 @@ function setTab(name) {
     tab === 'cues' ? (q
       ? '<b>' + q.cues + '</b> cues &nbsp; <b>' + q.notes + '</b> notes &nbsp; <b>' +
         q.tags + '</b> tags' + from : '') :
+    tab === 'keys' ? (k
+      ? '<b>' + k.keys.toLocaleString() + '</b> keyframes &nbsp; <b>' +
+        k.fields.toLocaleString() + '</b> parameters &nbsp; <b>' + k.tracks + '</b> tracks &nbsp; <b>' +
+        k.cdls + '</b> CDLs <span class="of">on ' + k.cdlLayers + ' layers</span>' +
+        (keySource === 'a' ? ' &nbsp; <span class="of">from Before</span>' : '') : '') :
     tab === 'transports' ? (t
       ? '<b>' + t.transports + '</b> transports &nbsp; <b>' + t.tracks +
         '</b> tracks' + from : '') :
@@ -1476,6 +2249,7 @@ function setTab(name) {
 function paint() {
   if (tab === 'media') { paintMedia(); return; }
   if (tab === 'cues') { paintCues(); return; }
+  if (tab === 'keys') { paintKeys(); return; }
   if (tab === 'transports') { paintTransports(); return; }
   if (tab === 'system') { paintSystem(); return; }
 
@@ -1525,6 +2299,15 @@ wire('dropB', 'fileB', 'b');
   document.getElementById('media').addEventListener('click', expander);
   document.getElementById('cues').addEventListener('click', expander);
   document.getElementById('transports').addEventListener('click', expander);
+  document.getElementById('keys').addEventListener('click', keysClick);
+
+  // "fit" is measured against the window, so a resize redraws the timeline to
+  // the new width -- once the drag settles, not on every pixel of it.
+  var resizing = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizing);
+    resizing = setTimeout(function () { if (tab === 'keys' && lastKeys) paintKeys(); }, 150);
+  });
 
   // The system tab compacts by hiding defaults, not by collapsing details, so
   // it toggles its own state and re-renders rather than flipping open flags.

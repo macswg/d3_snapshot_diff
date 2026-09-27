@@ -25,7 +25,7 @@ or open `index.html` locally straight from disk — both work identically since
 nothing leaves the browser.
 
 - **One file** — drop a `.d3` (or an exported `.json`) on either box. The
-  Media report, Tags & notes, Transport info and System info tabs describe it; they read After
+  Media report, Tags & notes, Keyframes, Transport info and System info tabs describe it; they read After
   when there is one and Before otherwise.
 - **Two files** — one on **Before**, one on **After**. The Changes tab shows
   what changed between them.
@@ -202,9 +202,71 @@ counts as no note.
 `cueReport(snap)` builds it, is DOM-free like the rest of `diff.js`, and is
 covered by the self-test.
 
+## Keyframes
+
+The fourth tab: one show's layer animation, the ~5,700 keys on ~2,200
+parameters that the extractor's keyframes file holds. That is far past what a
+list can show, so the tab is three views that drive each other:
+
+- **Where things move** — a grid of every animated track against the kinds of
+  parameter that move: the nine families that animate the most parameters
+  (brightness, CDL, Notch, speed, …) and an **other** column for the rest.
+  A cell is the track's key count for that family, shaded per column on a log
+  scale; one shared scale left every column but brightness blank. The CDL column
+  is coloured by the grades themselves. Click a track to open its timeline, a
+  cell or a heading to show only that family.
+- **Timeline** — the picked track as rows, one per layer, the way Designer lays
+  it out: the layer's extent, a diamond per key, section lines and cue markers
+  from the snapshot, and the layer's CDL as a strip along its bar. Click a layer
+  to open one row per parameter: numbers draw as their curve (linear, step or
+  smooth, taken from the key a segment leaves), clips, CDLs and strings as
+  blocks that hold until the next key, an expression as a dotted line. Hover
+  anything for its time, timecode and value. **fit** draws the span the layers
+  and keys occupy; 2× to 16× zoom about the middle of the view.
+- **CDLs** — every CDL a layer uses, with a swatch, whether it was made in
+  Designer (`d3`) or imported (`.cc`), and how many layers and tracks use it.
+  Click one for its slope, power, offset and saturation and the tracks that use
+  it; the grid dims every other track and the timeline highlights the layers
+  that apply it.
+
+**The swatch is the direction of a grade, not its exact look.** It is the CDL
+applied (slope, offset, clamp, power, then saturation against Rec.709 luma) to a
+grey ramp and a hue ramp. A grey ramp alone can show tint and contrast but never
+saturation, which is why there are two. Designer grades in its working colour
+space with OCIO or ACES transforms around the CDL, which the archive does not
+describe.
+
+**Keyframes come from a `.d3` or from the extractor's `_keyframes.json`.** A
+snapshot `.json` carries none. Dropping a `.d3` reads both from the archive. A
+`_keyframes.json` dropped on a box joins the snapshot already there, and a
+snapshot `.json` dropped after it keeps it when the two name the same project,
+so the pair can go in either order. A snapshot of another project drops the
+keyframes rather than drawing one show's animation against another's cues.
+The slot label says which file the keyframes came from. The folder picker skips
+`_keyframes.json` files.
+
+**The snapshot beside them is only for cue markers, timecode and track length.**
+A snapshot lists only the tracks on a setlist, while the keyframes file covers
+the whole show, so a track on no setlist draws without markers and says why.
+Timecode follows the extractor's rule exactly: counted on from the last TC tag,
+whose frames run at the real rate (at 29.97, `01:00:00:00` is 3,603.6 s of track
+time). The self-test holds it to the `tcStart` the extractor gives every layer.
+
+**A keyframes file older than format 3 is missing nearly every CDL.** Format 2
+kept only parameters with two or more keys, and a grade is nearly always set
+with one, so on the reference show it kept 2 of 435 graded layers. The tab says
+so rather than showing a show that looks barely graded.
+
+**Interpolation names are inferred.** The extractor reads a code per key and
+names them linear, step and smooth from how a real show uses them; that has not
+been confirmed in Designer.
+
+`keyframeReport(keys, snap)` builds it and is DOM-free like the rest of
+`diff.js`.
+
 ## Transport info
 
-The fourth tab: what each transport is loaded with. A section per transport —
+The fifth tab: what each transport is loaded with. A section per transport —
 its setlist, and the tracks on it **in running order**.
 
 Deliberately **no media**. A setlist is a running order, and 1,700 clip rows
@@ -549,6 +611,28 @@ DOM-free:
 It reads `snap.tracks` and never looks at `transports`, so every track appears
 exactly once and `totals.media` is the media in the capture rather than a sum
 over setlists.
+
+`keyframeReport(keys, snap)` builds the keyframes tab from the extractor's
+keyframes document, with the snapshot (or null) for cue markers and timecode. It
+returns null for anything that is not a keyframes document:
+
+```js
+{
+  columns: [ { family, members, fields, keys } ],       // the grid, "other" last
+  tracks: [ { id, name, bpm, lengthInSec, start, end, inSnapshot, trashed, fps,
+              cues, anchors, keyCount, fieldCount, cdlLayers, cells: [ { fields, keys } ],
+              layers: [ { id, name, group, type, tStart, tEnd, cdls: [ ref ],
+                          fields: [ { name, display, family, numeric, isCdl, expression,
+                                      default, min, max, keys: [ { t, value, interpolation } ] } ] } ] } ],
+  cdls: [ { ref, name, source, slope, power, offset, saturation, error,
+            swatch: { grey, hue, mid }, identity, layers, tracks } ],
+  totals: { tracks, layers, fields, keys, cdls, cdlLayers },
+  notes: [ … ]
+}
+```
+
+`timecodeAt(track, t)` gives the timecode at `t` track seconds on a report
+track, or null before its first TC tag.
 
 `cueReport(snap)` builds the tags & notes tab from a single snapshot, and is
 likewise DOM-free:

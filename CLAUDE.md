@@ -9,9 +9,10 @@ are easy to get wrong.
 A browser viewer for disguise d3 showfiles: a `.d3` project archive, or a
 `susan_summary` v6 or v7 JSON snapshot. Drop one to analyze it, two to diff
 them, or choose a folder of `susan_summary` exports to diff the latest pair.
-Five tabs: a semantic diff of two captures, and a media inventory, a list of
-cue tags and notes, a per-transport view and a system view of one. Every tab carries a header line
-naming the Designer build each capture came from.
+Six tabs: a semantic diff of two captures, and a media inventory, a list of
+cue tags and notes, a keyframe explorer, a per-transport view and a system view
+of one. Every tab carries a header line naming the Designer build each capture
+came from.
 
 No build step, no dependencies, no server. `index.html` opened from disk works
 identically to the hosted copy. That constraint is load-bearing — do not
@@ -29,6 +30,7 @@ tools/deploy.sh   Version bump, commit, push, wait for Pages.
 
 `diff.js` exports its entry points under CommonJS and as page globals:
 `diffSnapshots(a, b)`, `summarize(result)`, `mediaReport(snap)`, `cueReport(snap)`,
+`keyframeReport(keys, snap)`, `timecodeAt(track, t)`,
 `transportReport(snap)`, `systemReport(snap)`, and
 `exportDiff(result, a, b, names, generatedAt)` behind the Export JSON button.
 The export's `about` list is its reading rules for a model or script; when one
@@ -148,6 +150,21 @@ Reversing any of these will look like a simplification and will be a regression.
     from a capture's sorted ones: 543 phantom changes on the reference show. The
     round-trip also makes a dropped archive identical to the file the extractor
     page downloads.
+
+14. **Keyframes are not part of a snapshot, and travel beside one.** A `.d3`
+    yields both; a `_keyframes.json` joins whatever snapshot its slot holds, and
+    a snapshot `.json` keeps them only when both name the same project. The
+    Keyframes tab picks its own slot (After, else Before) because the slot with
+    keyframes need not be the one the other tabs read. Folding keyframes into the
+    snapshot would change the schema the plugin shares with this viewer for a
+    file the plugin does not write.
+15. **A key's timecode is the extractor's timecode, not a better one.** A TC
+    tag's label counts frames that run at the real rate, so at 29.97
+    `14:00:02:00` is 50,452 s of track time, not 50,402. Reading the label as
+    wall-clock time is the obvious "fix" and put every key 50 s away from the
+    `tcStart` of the layer it sits on. Anchoring on a cue's rounded `timecode`
+    instead of its tag text put 8 of 873 layers a frame off. The self-test holds
+    `timecodeAt` to every `tcStart` in the archive.
 
 ## Tests
 
