@@ -68,8 +68,8 @@
     mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M22 12h-6l-2 3h-4l-2-3H2'/%3E%3Cpath d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3C/svg%3E") no-repeat center / contain;
   }
   /* The whole page takes a drop. Shown only while files are dragged over the
-     window, and pointer-events:none so the Before and After boxes underneath
-     still light up and still take the drop that lands on them. */
+     window, and pointer-events:none so a drop still reaches the page beneath.
+     Its top is set from the header on each drag, below the two boxes. */
   #dropzone {
     position: fixed; inset: 0; z-index: 50; pointer-events: none; display: none;
     align-items: center; justify-content: center;
@@ -680,10 +680,18 @@ function hideDropzone() {
   dragDepth = 0;
   document.getElementById('dropzone').classList.remove('on');
 }
+// The overlay starts at the header's bottom edge, so it never covers the Before
+// and After boxes it points at. Measured on each drag rather than fixed in CSS:
+// the header wraps to a different height on a narrow window, and once it has
+// scrolled away the overlay takes the whole window.
 window.addEventListener('dragenter', function (e) {
   if (!hasFiles(e)) return;
-  dragDepth++;
-  document.getElementById('dropzone').classList.add('on');
+  var zone = document.getElementById('dropzone');
+  if (dragDepth++ === 0) {
+    var edge = document.querySelector('header').getBoundingClientRect().bottom;
+    zone.style.top = Math.max(0, Math.round(edge)) + 'px';
+  }
+  zone.classList.add('on');
 });
 window.addEventListener('dragleave', function (e) {
   if (!hasFiles(e)) return;
