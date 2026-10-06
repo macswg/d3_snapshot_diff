@@ -29,7 +29,7 @@ tools/deploy.sh   Version bump, commit, push, wait for Pages.
 ```
 
 `diff.js` exports its entry points under CommonJS and as page globals:
-`diffSnapshots(a, b)`, `summarize(result)`, `mediaReport(snap)`, `cueReport(snap)`,
+`diffSnapshots(a, b, keys)` (`keys` optional, `{a, b}` keyframes documents), `summarize(result)`, `mediaReport(snap)`, `cueReport(snap)`,
 `keyframeReport(keys, snap)`, `timecodeAt(track, t)`,
 `transportReport(snap)`, `systemReport(snap)`, and
 `exportDiff(result, a, b, names, generatedAt)` behind the Export JSON button.
@@ -169,6 +169,19 @@ Reversing any of these will look like a simplification and will be a regression.
     `tcStart` of the layer it sits on. Anchoring on a cue's rounded `timecode`
     instead of its tag text put 8 of 873 layers a frame off. The self-test holds
     `timecodeAt` to every `tcStart` in the archive.
+16. **A key is compared from its layer's start when that explains more.** Key
+    `t` is track seconds and Designer carries keys with a dragged layer, so
+    comparing as stored reports one move as a line per key; always comparing
+    from `tStart` misreports a layer trimmed at its head, whose keys stayed put.
+    The corpus has both (425 keys followed their layer, 54 stayed), so
+    `diffLayerKeys` tries both per layer and keeps the quieter. "Pick one basis"
+    is the tidy-looking regression. `KEY_TOLERANCE` (1e-5 s) is bracketed like
+    `CUE_TOLERANCE`: 10x the extractor's six-place rounding drift, 9x below the
+    tightest real key spacing. Not `EPSILON` -- the drift is 1.0000008e-6, just
+    past it. And a format 4 file omits a parameter at its default, so a set
+    value on one side only is a change to or from the default, never an add or
+    a remove; keyframes on one side only, or a category one format lacks, are
+    skipped with a note, the census rule again.
 
 ## Tests
 
@@ -198,8 +211,10 @@ drive and an email address before it names a single capture. The `.d3` cases
 look for an archive in the same folders and in
 `../d3_proj_analyzer/d3 project to analyze example/`, and print a NOTE when
 there is none. Zero-byte files are skipped: an interrupted capture leaves one
-behind, and parsing it takes down the suite before a case runs. `tools/deploy.sh` still uses its own `LOGS` default and
-warns rather than resolving that list.
+behind, and parsing it takes down the suite before a case runs. `tools/deploy.sh`
+resolves the same list when `LOGS` is unset, and refuses to deploy when it finds
+no corpus. It used to default to a folder that did not exist, warn, and deploy
+anyway, which meant the gate had quietly stopped running.
 
 Resolution looks one level down and needs **two** captures before it accepts a
 folder, because the v6 archive sits in `old_schema/` while new captures land in
@@ -212,16 +227,23 @@ naming it. An explicit path argument is resolved the same way — `deploy.sh`
 passes one, and letting argv skip the search would leave the deploy gate with the
 hole the search closes.
 
-**Point `LOGS` at real v5 captures when deploying.** Two tests silently stopped
-testing anything when the census field landed, and only failed once the suite
-ran against real v5 files. `deploy.sh` warns and deploys anyway when it finds no
-logs, so an empty `LOGS` folder means the gate is not a gate.
+**The corpus has to be real captures.** Two tests silently stopped testing
+anything when the census field landed, and only failed once the suite ran against
+real v5 files. `deploy.sh` fails closed: no corpus, no deploy.
+`SKIP_SELFTEST=1` is the deliberate override, and it prints that it skipped.
+
+A corpus of `.d3` extractions is legitimate but cannot express everything:
+option switches are not packed into an archive, and a track's frame rate may not
+be read. Cases needing those print `--  ... did not run` with the reason rather
+than failing or passing on nothing. Read those lines; they name what this
+deploy did not check.
 
 ## Deploying
 
 ```
 tools/deploy.sh minor "commit message"
-LOGS=/path/to/captures tools/deploy.sh "…"     # gate on the selftest
+LOGS=/path/to/captures tools/deploy.sh "…"     # a corpus other than logs.local
+SKIP_SELFTEST=1 tools/deploy.sh "…"            # no corpus on this machine
 ```
 
 Pushing IS the deploy — Pages serves `main` at the root. The script polls the

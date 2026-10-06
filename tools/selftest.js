@@ -1489,7 +1489,7 @@ if (!archivePath) {
     (function walk(list) {
       list.forEach(function (n) {
         (n.changes || []).forEach(function (c) {
-          if (c.field === 'disabled' || c.field === 'muted') out.push(c.field + ' ' + c.from + '>' + c.to);
+          if (c.field === 'state' || c.field === 'mute') out.push(c.field + ' ' + c.from + '>' + c.to);
         });
         if (n.children) walk(n.children);
       });
@@ -1504,16 +1504,16 @@ if (!archivePath) {
   }
   var toggled = JSON.parse(JSON.stringify(fromArchive));
   firstLayer(toggled).enabled = !firstLayer(fromArchive).enabled;
-  check('a layer disabled between two archives is one disabled line',
+  check('a layer disabled between two archives is one state line, in words',
         JSON.stringify(flagLines(diff.diffSnapshots(fromArchive, toggled))) ===
-        JSON.stringify(['disabled ' + !firstLayer(fromArchive).enabled + '>' + firstLayer(fromArchive).enabled]),
+        JSON.stringify(['state ' + (firstLayer(fromArchive).enabled ? 'enabled>disabled' : 'disabled>enabled')]),
         JSON.stringify(flagLines(diff.diffSnapshots(fromArchive, toggled))));
   if (typeof firstLayer(fromArchive).muted === 'boolean') {
     var muteFlip = JSON.parse(JSON.stringify(fromArchive));
     firstLayer(muteFlip).muted = !firstLayer(fromArchive).muted;
-    check('a layer muted between two archives is one muted line',
+    check('a layer muted between two archives is one mute line, in words',
           flagLines(diff.diffSnapshots(fromArchive, muteFlip)).join() ===
-          'muted ' + firstLayer(fromArchive).muted + '>' + !firstLayer(fromArchive).muted,
+          'mute ' + (firstLayer(fromArchive).muted ? 'muted>unmuted' : 'unmuted>muted'),
           JSON.stringify(flagLines(diff.diffSnapshots(fromArchive, muteFlip))));
   } else {
     console.log('  --   the archive\'s mute state was unreadable, so the muted case did not run');
@@ -1621,6 +1621,288 @@ if (archivePath) {
           return alone.totals.keys === kr.totals.keys &&
                  alone.tracks.every(function (t) { return !t.cues.length && !t.inSnapshot; });
         })());
+
+  console.log('\nkeyframe changes (Changes tab)');
+  /* Mutations of the real archive's keyframes, diffed against the archive
+   * itself, so every finding below is the one edit the case made and nothing
+   * the show happens to hold. */
+  function clone(x) { return JSON.parse(JSON.stringify(x)); }
+  function kfDiff(docA, docB, snapB) {
+    return diff.diffSnapshots(fromArchive, snapB || fromArchive, { a: docA, b: docB });
+  }
+  function paramNodes(d) {
+    var out = [];
+    (function walk(list, trail) {
+      list.forEach(function (n) {
+        if (n.entity === 'parameter' || n.entity === 'cdl') out.push({ node: n, trail: trail });
+        if (n.children) walk(n.children, trail.concat([n]));
+      });
+    })(d.nodes, []);
+    return out;
+  }
+  function kfNotes(d) {
+    return (d.notes || []).filter(function (n) { return /keyframes/.test(n); });
+  }
+  // The doc's track and layer for a snapshot layer, and a parameter on it.
+  function kfFind(test) {
+    var snapIds = {};
+    fromArchive.tracks.forEach(function (t) {
+      (t.layers || []).forEach(function (l) { snapIds[t.id + '|' + l.id] = t; });
+    });
+    for (var i = 0; i < keyDoc.tracks.length; i++) {
+      var t = keyDoc.tracks[i];
+      for (var j = 0; j < t.layers.length; j++) {
+        var l = t.layers[j];
+        if (!snapIds[t.id + '|' + l.id]) continue;
+        for (var k = 0; k < l.fields.length; k++) {
+          if (test(l.fields[k], l)) return { ti: i, li: j, fi: k, track: t, layer: l, field: l.fields[k] };
+        }
+      }
+    }
+    return null;
+  }
+  function at(doc, hit) { return doc.tracks[hit.ti].layers[hit.li]; }
+
+  var self2 = kfDiff(keyDoc, clone(keyDoc));
+  check('an archive\'s keyframes against themselves report nothing and note nothing',
+        self2.nodes.length === 0 && kfNotes(self2).length === 0,
+        JSON.stringify(self2.counts) + ' ' + JSON.stringify(kfNotes(self2)));
+
+  // A numeric parameter with room around its middle key: three keys or more,
+  // spaced well apart, so moving one cannot pass a neighbour.
+  var curve = kfFind(function (f) {
+    if (f.static === true || f.valueType === 'CDL::RP' || f.keys.length < 3) return false;
+    return f.keys.every(function (k, i) {
+      return typeof k.value === 'number' && (!i || k.t - f.keys[i - 1].t > 0.5);
+    });
+  });
+  if (!curve) {
+    console.log('  --   no animated numeric parameter with three spaced keys on a setlist track, ' +
+                'so the key cases did not run');
+  } else {
+    var one = function (fn) {
+      var doc = clone(keyDoc);
+      fn(at(doc, curve).fields[curve.fi], at(doc, curve));
+      return paramNodes(kfDiff(keyDoc, doc));
+    };
+    var placed = function (p) {
+      return p.length === 1 && p[0].node.entity === 'parameter' &&
+             p[0].trail.length === 2 && p[0].trail[0].entity === 'track' &&
+             p[0].trail[0].label === 'track ' + curve.track.id &&
+             p[0].trail[1].entity === 'layer' && p[0].trail[1].label.indexOf(curve.layer.name) >= 0;
+    };
+    var show = function (p) {
+      return JSON.stringify(p.map(function (x) {
+        return x.trail.map(function (n) { return n.label; }).concat([x.node.label, x.node.detail]);
+      }));
+    };
+
+    var valued = one(function (f) { f.keys[1].value += 0.25; });
+    check('a key value changed is one parameter, under its own track and layer',
+          placed(valued) && valued[0].node.keys.counts.changed === 1 &&
+          valued[0].node.keys.counts.total === 1, show(valued));
+
+    var grown = one(function (f) {
+      var last = f.keys[f.keys.length - 1];
+      f.keys.push({ t: last.t + 1, value: last.value, interpolation: last.interpolation });
+    });
+    check('a key added is one added key on that parameter',
+          placed(grown) && grown[0].node.keys.counts.added === 1 && grown[0].node.keys.counts.total === 1,
+          show(grown));
+
+    var shrunk = one(function (f) { f.keys.splice(1, 1); });
+    check('a key removed is one removed key on that parameter',
+          placed(shrunk) && shrunk[0].node.keys.counts.removed === 1 && shrunk[0].node.keys.counts.total === 1,
+          show(shrunk));
+
+    var nudged = one(function (f) { f.keys[1].t += 0.1; });
+    check('a key dragged along the timeline is one moved key, not a remove and an add',
+          placed(nudged) && nudged[0].node.keys.counts.moved === 1 && nudged[0].node.keys.counts.total === 1,
+          show(nudged));
+
+    // Below the tolerance is the extractor's six-place rounding, not an edit.
+    var drift = one(function (f) { f.keys[1].t += diff.KEY_TOLERANCE / 10; });
+    check('a key time that drifts by rounding is not a change', drift.length === 0, show(drift));
+
+    var reinterp = one(function (f) {
+      f.keys[1].interpolation = f.keys[1].interpolation === 'step' ? 'linear' : 'step';
+    });
+    check('an interpolation changed is one changed key',
+          placed(reinterp) && reinterp[0].node.keys.counts.changed === 1, show(reinterp));
+
+    var expr = one(function (f) { f.expression = (f.expression || 'self') + '*0.5'; });
+    check('an expression edited is one field change on the parameter',
+          placed(expr) && expr[0].node.changes.length === 1 && expr[0].node.changes[0].field === 'expression' &&
+          !expr[0].node.keys, show(expr));
+
+    // The move a user makes: drag the layer, and its keys come with it. The
+    // snapshot's tStart line is the news; a line per key would bury it.
+    var SHIFT = 5;
+    var movedDoc = clone(keyDoc), movedSnap = clone(fromArchive);
+    var ml = at(movedDoc, curve);
+    ml.tStart += SHIFT; ml.tEnd += SHIFT;
+    ml.fields.forEach(function (f) { f.keys.forEach(function (k) { k.t += SHIFT; }); });
+    movedSnap.tracks.forEach(function (t) {
+      if (t.id !== curve.track.id) return;
+      t.layers.forEach(function (l) {
+        if (l.id === curve.layer.id) { l.tStart += SHIFT; l.tEnd += SHIFT; }
+      });
+    });
+    var moveDiff = kfDiff(keyDoc, movedDoc, movedSnap);
+    var moveLayer = paramNodes(moveDiff);
+    var layerRow = (function () {
+      var hit = null;
+      (function walk(list) {
+        list.forEach(function (n) {
+          if (n.entity === 'layer' && n.label.indexOf(curve.layer.name) >= 0 &&
+              (n.changes || []).some(function (c) { return c.field === 'tStart'; })) hit = n;
+          if (n.children) walk(n.children);
+        });
+      })(moveDiff.nodes);
+      return hit;
+    })();
+    check('a layer moved with its keys reports the move once, not a line per key',
+          moveLayer.length === 0 && !!layerRow,
+          show(moveLayer) + ' layer row: ' + !!layerRow);
+
+    // Moved with the layer and then slid further: the summary is the slide alone.
+    // Measured on stored times it was the sum, twice what anyone did to the keys.
+    var further = clone(keyDoc), furtherSnap = clone(movedSnap);
+    var fl = at(further, curve);
+    fl.tStart += SHIFT; fl.tEnd += SHIFT;
+    fl.fields.forEach(function (f, fi) {
+      f.keys.forEach(function (k) { k.t += SHIFT + (fi === curve.fi ? SHIFT : 0); });
+    });
+    var furtherRows = paramNodes(kfDiff(keyDoc, further, furtherSnap));
+    check('keys slid on a moved layer report the slide, not the slide plus the move',
+          furtherRows.length === 1 &&
+          /moved by \+5 s on the layer$/.test(furtherRows[0].node.detail), show(furtherRows));
+
+    // A layer trimmed at its head: the start moves, the animation stays put.
+    var trimmed = clone(keyDoc);
+    at(trimmed, curve).tStart -= SHIFT;
+    check('a layer trimmed at its head with its keys left in place reports no keys',
+          paramNodes(kfDiff(keyDoc, trimmed)).length === 0, show(paramNodes(kfDiff(keyDoc, trimmed))));
+
+    var slid = one(function (f) { f.keys.forEach(function (k) { k.t += 2; }); });
+    check('a whole fade slid along reads as one line on its parameter',
+          placed(slid) && /· all moved by \+2 s$/.test(slid[0].node.detail), show(slid));
+
+    var bare = kfDiff(keyDoc, null);
+    check('one side without keyframes gives no keyframe findings and one note',
+          paramNodes(bare).length === 0 && kfNotes(bare).length === 1 &&
+          /Only the Before file carries keyframes/.test(kfNotes(bare)[0]),
+          JSON.stringify(kfNotes(bare)));
+    check('two sides without keyframes say nothing about them',
+          kfNotes(kfDiff(null, null)).length === 0);
+
+    var withKeys = kfDiff(keyDoc, clone(keyDoc));
+    check('a pair with no keyframe changes matches the diff without keyframes',
+          JSON.stringify(withKeys.nodes) === JSON.stringify(diff.diffSnapshots(fromArchive, fromArchive).nodes));
+
+    check('keyframe findings survive the export with the tally intact',
+          (function () {
+            var d = kfDiff(keyDoc, (function () {
+              var doc = clone(keyDoc);
+              at(doc, curve).fields[curve.fi].keys[1].value += 0.25;
+              return doc;
+            })());
+            var ex = JSON.parse(JSON.stringify(diff.exportDiff(d, fromArchive, fromArchive, {}, 'fixed')));
+            var n = 0;
+            (function walk(list) { list.forEach(function (x) { n++; if (x.children) walk(x.children); }); })(ex.changes);
+            return n === ex.counts.changed + ex.counts.added + ex.counts.removed &&
+                   ex.about.some(function (s) { return /`parameter` node/.test(s); }) &&
+                   ex.summary.entities.some(function (e) { return e.entity === 'parameter'; });
+          })());
+  }
+
+  // Set values: a format 4 file's one-key settings. A choice reads by name.
+  if (keyDoc.formatVersion < 4) {
+    console.log('  --   the vendored extractor writes keyframes format ' + keyDoc.formatVersion +
+                ', so the set value cases did not run');
+  } else {
+    var setHit = kfFind(function (f, l) {
+      return f.static === true && /^blendmode$/i.test(f.name) && typeof f.keys[0].value === 'number';
+    }) || kfFind(function (f) { return f.static === true && typeof f.keys[0].value === 'number'; });
+    if (!setHit) {
+      console.log('  --   no numeric set value on a setlist track, so the set value cases did not run');
+    } else {
+      var setDoc = clone(keyDoc);
+      var sf = at(setDoc, setHit).fields[setHit.fi];
+      var was = sf.keys[0].value;
+      sf.keys[0].value = was === 8 ? 2 : 8;
+      var setP = paramNodes(kfDiff(keyDoc, setDoc));
+      var opts = setP.length && setP[0].node.options;
+      check('a set value changed is one change on that parameter, a choice by name',
+            setP.length === 1 && setP[0].node.changes.length === 1 &&
+            setP[0].node.changes[0].field === 'set value' && !setP[0].node.keys &&
+            (!opts || setP[0].node.changes[0].to === opts[sf.keys[0].value] + ' (' + sf.keys[0].value + ')'),
+            JSON.stringify(setP.map(function (p) { return p.node; })));
+
+      // Left out of a format 4 file means at its default: a setting going back
+      // to the default is a change of value, not a parameter removed.
+      var unset = clone(keyDoc);
+      at(unset, setHit).fields.splice(setHit.fi, 1);
+      var unsetP = paramNodes(kfDiff(keyDoc, unset));
+      check('a set value dropped from the file reads as back to its default, not removed',
+            unsetP.length === 1 && unsetP[0].node.kind === 'changed' &&
+            /the default$/.test(unsetP[0].node.changes[0].to),
+            JSON.stringify(unsetP.map(function (p) { return p.node; })));
+
+      // Format 3 never wrote set values. Comparing against one must not read
+      // every setting in the show as reset.
+      var v3 = clone(keyDoc);
+      v3.formatVersion = 3;
+      v3.tracks.forEach(function (t) {
+        t.layers.forEach(function (l) { l.fields = l.fields.filter(function (f) { return f.static !== true; }); });
+      });
+      var mixed3 = kfDiff(keyDoc, v3);
+      check('against a format 3 file set values are skipped, with one note',
+            paramNodes(mixed3).length === 0 &&
+            kfNotes(mixed3).length === 1 && /does not record set values/.test(kfNotes(mixed3)[0]),
+            paramNodes(mixed3).length + ' ' + JSON.stringify(kfNotes(mixed3)));
+
+      // Format 2 also dropped every one-key CDL: grades are skipped too.
+      var v2 = clone(v3);
+      v2.formatVersion = 2;
+      delete v2.cdls;
+      v2.tracks.forEach(function (t) {
+        t.layers.forEach(function (l) {
+          l.fields = l.fields.filter(function (f) { return f.valueType !== 'CDL::RP' || f.keys.length > 1; });
+        });
+      });
+      var mixed2 = kfDiff(v2, keyDoc);
+      check('against a format 2 file CDLs and set values are skipped, a note for each',
+            paramNodes(mixed2).length === 0 && kfNotes(mixed2).length === 2 &&
+            kfNotes(mixed2).every(function (n) { return /The Before keyframes are format 2/.test(n); }),
+            paramNodes(mixed2).length + ' ' + JSON.stringify(kfNotes(mixed2)));
+    }
+  }
+
+  // CDLs: a layer switching grade is a key on its `cdl` parameter; a CDL whose
+  // own values were edited is one node, however many layers apply it.
+  var refs = Object.keys(keyDoc.cdls || {}).filter(function (r) { return !keyDoc.cdls[r].error; });
+  var graded2 = kfFind(function (f) { return f.valueType === 'CDL::RP' && f.keys.length && f.keys[0].value; });
+  if (keyDoc.formatVersion < 3 || !refs.length || !graded2) {
+    console.log('  --   the archive has no decoded CDL on a setlist track, so the CDL cases did not run');
+  } else {
+    var regraded = clone(keyDoc);
+    regraded.cdls[refs[0]].slope = regraded.cdls[refs[0]].slope.map(function (v) { return v + 0.1; });
+    var cdlP = paramNodes(kfDiff(keyDoc, regraded));
+    check('a CDL whose slope changed is one cdl node, not one per layer using it',
+          cdlP.length === 1 && cdlP[0].node.entity === 'cdl' && cdlP[0].trail.length === 0 &&
+          cdlP[0].node.changes.length === 1 && cdlP[0].node.changes[0].field === 'slope',
+          JSON.stringify(cdlP.map(function (p) { return p.node; })));
+
+    var swapped = clone(keyDoc);
+    var gk = at(swapped, graded2).fields[graded2.fi].keys[0];
+    gk.value = gk.value === refs[0] ? 'objects/cdl/zz_probe' : refs[0];
+    var swapP = paramNodes(kfDiff(keyDoc, swapped));
+    check('a layer switched to another CDL is one changed key on its cdl parameter',
+          swapP.length === 1 && swapP[0].node.entity === 'parameter' &&
+          swapP[0].node.keys && swapP[0].node.keys.counts.changed === 1,
+          JSON.stringify(swapP.map(function (p) { return p.node.label + ' ' + p.node.detail; })));
+  }
 }
 
 check('a snapshot is not mistaken for a keyframes file',

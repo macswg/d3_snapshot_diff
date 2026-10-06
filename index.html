@@ -225,6 +225,13 @@
   .oline.moved   .sig { color: var(--ch-fg); }
   .oline.added .t { color: var(--add-fg); }
   .oline.removed .t { color: var(--rm-fg); }
+  /* A parameter's changed keys reuse the running-order block. Times run to four
+     digits of seconds and three decimals, so their columns are wider than a
+     setlist position. */
+  .oline .kt { flex: none; width: 10ch; text-align: right; color: var(--dim); }
+  .oline.changed .sig { color: var(--ch-fg); }
+  .oline.added .kt.to { color: var(--add-fg); }
+  .oline.removed .kt.from { color: var(--rm-fg); }
 
   /* Media report, and the transport report under it ---------------------------
      Tracks reuse details.order: a setlist runs past a hundred entries here too,
@@ -594,7 +601,7 @@
 
 <div id="dropzone" aria-hidden="true"><div class="dzbox"><span class="dzi"></span>
   <div>Drop anywhere to load as <b>Before</b></div>
-  <div class="of">or onto the After box to load it there</div></div></div>
+  <div class="of">or onto the After box to load it there · drop two to compare them</div></div></div>
 
 <nav id="tabs">
   <button type="button" class="tab on" data-tab="changes">Changes</button>
@@ -631,7 +638,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.12.0</span>
+  <span id="ver">v2.13.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -698,11 +705,28 @@ window.addEventListener('dragleave', function (e) {
   if (--dragDepth <= 0) hideDropzone();
 });
 window.addEventListener('dragover', function (e) { if (hasFiles(e)) e.preventDefault(); });
+// Two captures dropped together are a pair to compare, so they fill both slots,
+// older as Before. Order comes from captureTime, the rule the folder picker uses,
+// not from the order the files arrive in: that is the order they were selected
+// in Finder, which says nothing about which save came first. A _keyframes.json
+// is left out of the count because it is a companion to a snapshot, not a
+// capture of its own; with anything other than exactly two captures the first
+// file loads as Before, as a single drop always has.
 window.addEventListener('drop', function (e) {
   if (!hasFiles(e)) return;
   e.preventDefault();
   hideDropzone();
-  if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0], 'a', document.getElementById('dropA'));
+  var files = Array.prototype.slice.call(e.dataTransfer.files);
+  var caps = files.filter(function (f) { return !/_keyframes\.json$/i.test(f.name); });
+  if (caps.length === 2) {
+    caps.sort(function (x, y) {
+      return captureTime(x).t - captureTime(y).t || x.name.localeCompare(y.name);
+    });
+    load(caps[0], 'a', document.getElementById('dropA'));
+    load(caps[1], 'b', document.getElementById('dropB'));
+    return;
+  }
+  if (files[0]) load(files[0], 'a', document.getElementById('dropA'));
 });
 
 /* Capture time for ordering, filename first.
@@ -995,6 +1019,13 @@ function hay(node) {
     s += ' running order';
     node.order.entries.forEach(function (e) { s += ' ' + e.id; });
   }
+  // A parameter's key lines are text on the page too, folded or not.
+  if (node.keys) {
+    s += ' keys';
+    node.keys.entries.forEach(function (e) {
+      s += ' ' + keyTimes(e).join(' ') + ' ' + e.kind + ' ' + keyText(e, node.options);
+    });
+  }
   return s.toLowerCase();
 }
 
@@ -1136,6 +1167,53 @@ function renderOrder(order) {
   return html + '</div></details>';
 }
 
+/* A parameter's changed keys -----------------------------------------------
+ * The running order's block again, one line per key: its time before and after
+ * in track seconds, what happened, and the value. A fade slid along as a whole
+ * is already summed up on the parameter's row, so long blocks start folded the
+ * way a long running order does. */
+var KEY_SIGIL = { moved: '↔', changed: '~', added: '+', removed: '−' };
+
+function keyTimes(e) {
+  return [e.a ? fmt(e.a.t) : '·', e.b ? fmt(e.b.t) : '·'];
+}
+
+// valueText is diff.js's: a choice by name with its number, so a blend mode
+// reads the same here as on the Keyframes tab.
+function keyText(e, opts) {
+  function side(k) { return fmt(valueText(k.value, opts)); }
+  function interp(k) { return k.interpolation || '—'; }
+  if (!e.a) return side(e.b) + ' ' + interp(e.b);
+  if (!e.b) return side(e.a) + ' ' + interp(e.a);
+  var bits = [];
+  bits.push(sameValue(e.a.value, e.b.value) ? side(e.b) : side(e.a) + ' → ' + side(e.b));
+  bits.push(e.a.interpolation === e.b.interpolation ? interp(e.b)
+    : interp(e.a) + ' → ' + interp(e.b));
+  return bits.join(' ');
+}
+
+function renderKeys(node) {
+  var k = node.keys, c = k.counts, bits = [];
+  if (c.added)   bits.push('<span class="a">+' + c.added + '</span>');
+  if (c.removed) bits.push('<span class="r">−' + c.removed + '</span>');
+  if (c.changed) bits.push('<span class="c">~' + c.changed + ' changed</span>');
+  if (c.moved)   bits.push('<span class="c">↔' + c.moved + ' moved</span>');
+  var open = query || k.entries.length <= KEY_FOLD ? ' open' : '';
+  var html = '<details class="order"' + open + '>' +
+    '<summary><span class="k">keys</span>' +
+    '<span class="of">' + c.a + ' → ' + c.b + '</span>' + bits.join(' ') +
+    '</summary><div class="lines">';
+  k.entries.forEach(function (e) {
+    var t = keyTimes(e);
+    html += '<div class="oline ' + e.kind + '">' +
+      '<span class="kt from">' + markup(t[0]) + '</span>' +
+      '<span class="kt to">' + markup(t[1]) + '</span>' +
+      '<span class="sig">' + KEY_SIGIL[e.kind] + '</span>' +
+      '<span class="t">' + markup(keyText(e, node.options)) + '</span></div>';
+  });
+  return html + '</div></details>';
+}
+
 /* Labels the user folded, by node label. A track label is unique in the tree
  * because a track id is, and keying on it rather than on position keeps a fold
  * in place while a search redraws the tree around it. */
@@ -1193,6 +1271,7 @@ function renderNode(node) {
     html += '</div>';
   }
   if (node.order) html += renderOrder(node.order);
+  if (node.keys) html += renderKeys(node);
   if (node.children && node.children.length) {
     html += '<div class="kids">' + node.children.map(renderNode).join('') + '</div>';
   }
@@ -2914,7 +2993,10 @@ function render() {
   keysSettle();
 
   if (snaps.a && snaps.b) {
-    lastResult = diffSnapshots(snaps.a, snaps.b);
+    // Keyframes travel beside a snapshot, so they are handed in per slot. A
+    // slot with none is passed as null and the diff says what it could not
+    // compare, rather than reading a plugin capture as a show with no animation.
+    lastResult = diffSnapshots(snaps.a, snaps.b, { a: keyDocs.a, b: keyDocs.b });
     // A new pair starts unfolded. Carrying folds across would hide whatever the
     // new After changed on a track the user had finished reading in the old one.
     folded = {};

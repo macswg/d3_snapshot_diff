@@ -28,14 +28,23 @@ MSG=${1:-}
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [ "$BRANCH" = "main" ] || { echo "on '$BRANCH', not main -- Pages builds main" >&2; exit 1; }
 
-# Tests gate the deploy. LOGS may point at any folder of captures.
-LOGS=${LOGS:-../d3plg_susan_summary/example_logs}
-if [ -d "$LOGS" ]; then
-  node tools/selftest.js "$LOGS" >/dev/null || { node tools/selftest.js "$LOGS"; exit 1; }
-  echo "selftest passed against $LOGS"
+# Tests gate the deploy, and a gate that cannot find a corpus is closed, not
+# open. This used to default LOGS to a folder that did not exist, warn, and
+# deploy anyway -- so the self-test silently stopped running on every deploy.
+# With no LOGS the suite resolves its own corpus (tools/logs.local, then the
+# plugin repo next door), the same list `node tools/selftest.js` uses by hand.
+# SKIP_SELFTEST=1 is the deliberate way through when there is truly no corpus.
+SELFTEST=(node tools/selftest.js)
+[ -n "${LOGS:-}" ] && SELFTEST+=("$LOGS")
+if [ "${SKIP_SELFTEST:-}" = 1 ]; then
+  echo "WARNING: SKIP_SELFTEST=1 -- deploying without running the selftest." >&2
+elif OUT=$("${SELFTEST[@]}" 2>&1); then
+  echo "selftest passed against $(printf '%s\n' "$OUT" | sed -n 's/^logs: \([^(]*\)  (.*/\1/p')"
 else
-  echo "WARNING: no logs at $LOGS -- deploying without running the selftest." >&2
-  echo "         set LOGS=/path/to/captures to gate the deploy on it." >&2
+  printf '%s\n' "$OUT" | grep -E 'FAIL|^ {9}|no captures|no folder|Error' >&2 || printf '%s\n' "$OUT" >&2
+  echo "selftest failed or found no corpus -- not deploying." >&2
+  echo "add a capture folder to tools/logs.local, or set LOGS=/path, or SKIP_SELFTEST=1." >&2
+  exit 1
 fi
 
 CUR=$(sed -n 's/.*id="ver">v\([0-9]*\.[0-9]*\.[0-9]*\)<.*/\1/p' index.html)

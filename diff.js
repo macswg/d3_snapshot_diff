@@ -389,18 +389,32 @@ function layerFlags(snap) {
   return known;
 }
 
-function diffLayers(trackA, trackB, flags) {
+/* `index`, when given, collects every layer node this track produced under the
+ * layer's id and its groupPath + name, so the keyframe diff can hang its
+ * parameters on the row that already speaks for that layer rather than
+ * printing the layer twice. Kept beside the nodes, never on them: the nodes are
+ * what the export writes out. */
+function indexLayer(index, l, node) {
+  if (!index) return;
+  if (typeof l.id === 'string' && l.id !== '') index.byId[l.id] = node;
+  var k = layerKey(l);
+  index.byKey[k] = k in index.byKey ? null : node;
+}
+
+function diffLayers(trackA, trackB, flags, index) {
   var useIds = layersHaveIds(trackA.layers) && layersHaveIds(trackB.layers);
   var m = matchBy(trackA.layers, trackB.layers, useIds ? layerIdKey : layerKey);
   var labelA = layerLabeller(trackA.layers), labelB = layerLabeller(trackB.layers);
   var nodes = [];
   m.added.forEach(function (l) {
-    nodes.push({ kind: 'added', entity: 'layer',
-                 label: 'layer ' + labelB(l), detail: l.type });
+    var n = { kind: 'added', entity: 'layer', label: 'layer ' + labelB(l), detail: l.type };
+    indexLayer(index, l, n);
+    nodes.push(n);
   });
   m.removed.forEach(function (l) {
-    nodes.push({ kind: 'removed', entity: 'layer',
-                 label: 'layer ' + labelA(l), detail: l.type });
+    var n = { kind: 'removed', entity: 'layer', label: 'layer ' + labelA(l), detail: l.type };
+    indexLayer(index, l, n);
+    nodes.push(n);
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, LAYER_FIELDS);
@@ -412,19 +426,22 @@ function diffLayers(trackA, trackB, flags) {
     if (ga !== gb) {
       ch.push({ field: 'group', from: showWhitespace(ga), to: showWhitespace(gb) });
     }
-    // Reported as `disabled`, not `enabled`, so the line reads the way the
-    // media report and Designer's own toggle say it.
+    // Words rather than booleans: the page prints a boolean as yes/no, and
+    // "disabled no -> yes" makes the reader translate a double negative.
     if (flags && flags.enabled && p.a.enabled !== p.b.enabled) {
-      ch.push({ field: 'disabled', from: !p.a.enabled, to: !p.b.enabled });
+      ch.push({ field: 'state', from: p.a.enabled ? 'enabled' : 'disabled',
+                to: p.b.enabled ? 'enabled' : 'disabled' });
     }
     if (flags && flags.muted && p.a.muted !== p.b.muted) {
-      ch.push({ field: 'muted', from: p.a.muted, to: p.b.muted });
+      ch.push({ field: 'mute', from: p.a.muted ? 'muted' : 'unmuted',
+                to: p.b.muted ? 'muted' : 'unmuted' });
     }
     var kids = diffMedia(p.a, p.b);
     if (ch.length || kids.length) {
-      nodes.push({ kind: 'changed', entity: 'layer',
-                   label: 'layer ' + labelB(p.b),
-                   changes: ch, children: kids });
+      var n = { kind: 'changed', entity: 'layer', label: 'layer ' + labelB(p.b),
+                changes: ch, children: kids };
+      indexLayer(index, p.b, n);
+      nodes.push(n);
     }
   });
   return nodes;
@@ -493,6 +510,8 @@ function diffTracks(snapA, snapB, flags) {
   var showA = showfileTracks(snapA), showB = showfileTracks(snapB);
   var m = matchBy(snapA.tracks, snapB.tracks, function (t) { return t.id; });
   var nodes = [], membership = { added: 0, removed: 0 };
+  // Track nodes by id and, per track, its layer nodes -- see indexLayer.
+  var byId = Object.create(null), layerIndex = Object.create(null);
   // A track in the trash is still played if a setlist references it, which is
   // worth saying on every row it appears on -- it never shows up in the census,
   // so nothing else in the output would give it away.
@@ -504,24 +523,32 @@ function diffTracks(snapA, snapB, flags) {
   m.added.forEach(function (t) {
     // Genuinely new only if Before censused the showfile and this was not in it.
     if (!(showA.known && !showA.set[String(t.id)])) { membership.added++; return; }
-    nodes.push({ kind: 'added', entity: 'track', label: 'track ' + showWhitespace(t.id),
-                 detail: showWhitespace(trackDetail(t)) });
+    var n = { kind: 'added', entity: 'track', label: 'track ' + showWhitespace(t.id),
+              detail: showWhitespace(trackDetail(t)) };
+    byId[String(t.id)] = n;
+    nodes.push(n);
   });
   m.removed.forEach(function (t) {
     if (!(showB.known && !showB.set[String(t.id)])) { membership.removed++; return; }
-    nodes.push({ kind: 'removed', entity: 'track', label: 'track ' + showWhitespace(t.id),
-                 detail: showWhitespace(trackDetail(t)) });
+    var n = { kind: 'removed', entity: 'track', label: 'track ' + showWhitespace(t.id),
+              detail: showWhitespace(trackDetail(t)) };
+    byId[String(t.id)] = n;
+    nodes.push(n);
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, TRACK_FIELDS);
-    var kids = diffCues(p.a, p.b).concat(diffLayers(p.a, p.b, flags));
+    var index = layerIndex[String(p.b.id)] = { byId: Object.create(null), byKey: Object.create(null) };
+    var kids = diffCues(p.a, p.b).concat(diffLayers(p.a, p.b, flags, index));
     if (ch.length || kids.length) {
-      nodes.push({ kind: 'changed', entity: 'track', label: 'track ' + showWhitespace(p.b.id),
-                   detail: p.b.trashed ? 'in the trash' : null,
-                   changes: ch, children: kids });
+      var n = { kind: 'changed', entity: 'track', label: 'track ' + showWhitespace(p.b.id),
+                detail: p.b.trashed ? 'in the trash' : null,
+                changes: ch, children: kids };
+      byId[String(p.b.id)] = n;
+      nodes.push(n);
     }
   });
-  return { nodes: nodes, membership: membership, showA: showA, showB: showB };
+  return { nodes: nodes, membership: membership, showA: showA, showB: showB,
+           byId: byId, layerIndex: layerIndex };
 }
 
 /* Line-diff two running orders -> {entries, counts}.
@@ -606,8 +633,12 @@ function diffTransports(snapA, snapB) {
   return nodes;
 }
 
-/* Top level. Returns {meta, nodes, counts, notes}. */
-function diffSnapshots(snapA, snapB) {
+/* Top level. Returns {meta, nodes, counts, notes}.
+ *
+ * `keys` is optional: {a, b}, the extractor's keyframes document for each side
+ * or null. Keyframes travel beside a snapshot rather than inside one, so they
+ * are handed in separately; see diffKeyframes. */
+function diffSnapshots(snapA, snapB, keys) {
   var nodes = [];
 
   var top = fieldChanges(snapA, snapB, SNAPSHOT_FIELDS);
@@ -658,6 +689,12 @@ function diffSnapshots(snapA, snapB) {
                (tracks.showA.known ? '' : noCensus('Before', snapA)));
   }
 
+  if (keys) {
+    var kf = diffKeyframes(snapA, snapB, keys.a, keys.b, tracks);
+    nodes = nodes.concat(kf.nodes);
+    notes = notes.concat(kf.notes);
+  }
+
   var counts = { added: 0, removed: 0, changed: 0 };
   (function walk(list) {
     list.forEach(function (n) {
@@ -687,7 +724,7 @@ function diffSnapshots(snapA, snapB) {
  *
  * Returns {entities, fields, hotspots}, all pre-sorted for display.
  */
-var ENTITY_ORDER = ['snapshot', 'transport', 'track', 'layer', 'cue', 'media'];
+var ENTITY_ORDER = ['snapshot', 'transport', 'track', 'layer', 'cue', 'media', 'parameter', 'cdl'];
 
 function summarize(result) {
   var byEntity = {}, byField = {};
@@ -710,6 +747,13 @@ function summarize(result) {
         var ko = e + ' running order';
         if (!byField[ko]) byField[ko] = { entity: e, field: 'running order', count: 0 };
         byField[ko].count++;
+      }
+      // A parameter's key lines count once for the same reason: re-timing one
+      // fade is one edit, however many keys it took.
+      if (n.keys) {
+        var kk = e + ' keys';
+        if (!byField[kk]) byField[kk] = { entity: e, field: 'keys', count: 0 };
+        byField[kk].count++;
       }
       if (n.children) walk(n.children);
     });
@@ -770,7 +814,8 @@ var EXPORT_ABOUT = [
   'A transport `order` is a line diff of its setlist: entries are {kind: same|moved|added|removed, id: track id, a: 0-based position in before or null, b: 0-based position in after or null}.',
   'Labels mark whitespace a browser would swallow: a trailing space, a doubled space or an embedded newline shows as a visible symbol (␣ space, ⇥ tab, ⏎ newline, or a \\uXXXX codepoint for any other invisible). Field values stay raw, except a layer `group` change, which is marked like a label. Two labels differing only by such a mark are genuinely different entities.',
   'The snapshot node carries environment changes: the Designer build (`d3 build`) and project or machine option switches.',
-  'A layer `disabled` or `muted` change is true/false. Only a capture read from a .d3 records either flag, so they are compared only when both captures recorded them, and `notes` says when one side did not.',
+  'A layer `state` change is enabled/disabled and a `mute` change is muted/unmuted. Only a capture read from a .d3 records either flag, so they are compared only when both captures recorded them, and `notes` says when one side did not.',
+  'A `parameter` node is a layer parameter whose keyframes or set value changed, nested under its layer; it is present only when both sides had keyframes from a .d3 or an extractor _keyframes.json. Its `keys` block lists changed keys as {kind: moved|changed|added|removed, a, b}, each side {t, value, interpolation} with t in track seconds and choice values raw (their names are in that node `options` list); a `set value` change (a parameter set once and left) is already written by name, and `the default` means the file left the parameter out because it sat at its default. Keys are compared relative to the layer start when that explains more of them, so a moved layer reports its tStart, not every key; a `cdl` node is a CDL whose own values changed. `notes` says when a category (keyframes, set values, CDLs) could not be compared.',
   '`summary` is the same roll-up the page shows: per-entity tallies, the most-changed fields, and top-level nodes ranked by how much sits beneath them.'
 ];
 
@@ -1482,6 +1527,372 @@ function keyframeReport(doc, snap) {
            staticsKnown: (doc.formatVersion || 0) >= 4, notes: notes };
 }
 
+/* Keyframe changes -----------------------------------------------------------
+ * What programming changed between two keyframes documents: a key moved, a
+ * value or interpolation changed, a key added or removed, an expression edited,
+ * a set value changed, a CDL's own values changed. Parameters nest under the
+ * layer and track they belong to, on the row the snapshot diff already drew
+ * when there is one, so a layer reads once whatever changed on it.
+ */
+
+// Key identity, like a cue's, is proximity in time, and the number comes from
+// the corpus. Key times are f64 and survive a save exactly; what moves them is
+// the extractor rounding `t` and `tStart` to six places, so measured relative to
+// the layer a key drifts by up to 1.0000008e-6 s -- just past EPSILON, which is
+// why EPSILON cannot be used. Across the Sep 21 and Sep 26 saves of the
+// reference show, 3,306 keys on 633 shared layers drifted by no more than that.
+// 1e-5 is ten times it, and nine times below the tightest real spacing between
+// two keys of one parameter (8.9e-5 s on a brightness fade in 360_pyramid), so
+// the greedy merge below never has two candidates in range. Two keys sharing a
+// time exactly (two in the reference show, a hard cut) pair in file order.
+var KEY_TOLERANCE = 1e-5;
+
+// A parameter with more changed keys than this opens folded on the page; the
+// node's detail line says what is inside.
+var KEY_FOLD = 12;
+
+function keyFormat(doc) { return (doc && doc.formatVersion) || 0; }
+
+// A choice reads by name, the number kept beside it -- the Keyframes tab's rule.
+function valueText(v, opts) {
+  if (v === null || v === undefined) return 'none';
+  if (typeof v === 'number' && opts && opts[v] !== undefined) return opts[v] + ' (' + fmt(v) + ')';
+  return v;
+}
+
+function keySide(k) {
+  return { t: typeof k.t === 'number' ? k.t : null,
+           value: k.value === undefined ? null : k.value,
+           interpolation: k.interpolation || null };
+}
+
+/* Line-diff one parameter's keys -> {entries, counts}.
+ *
+ * Keys are placed at `t - off`, where `off` is the layer's start or 0 -- see
+ * diffLayerKeys for which. A proximity merge pairs keys that did not move;
+ * then, between two keys that stayed put, the keys that left and the keys that
+ * arrived pair in order as one moved key each. A key dragged along the timeline
+ * without passing a neighbour is one `moved` line, not a remove far from an add.
+ * Pairing across a stationary key is refused, because that is no longer a drag
+ * the keys can vouch for.
+ */
+function keyEntries(keysA, keysB, offA, offB) {
+  function placed(list, off) {
+    return (list || []).map(function (k, i) {
+      return { k: k, at: (typeof k.t === 'number' ? k.t : 0) - off, i: i };
+    }).sort(function (x, y) { return x.at - y.at || x.i - y.i; });
+  }
+  var a = placed(keysA, offA), b = placed(keysB, offB);
+  var out = [], run = [], i = 0, j = 0, gap;
+
+  function pair(x, y) {
+    var ka = keySide(x.k), kb = keySide(y.k);
+    var still = Math.abs(y.at - x.at) <= KEY_TOLERANCE;
+    var edited = !sameValue(ka.value, kb.value) || ka.interpolation !== kb.interpolation;
+    if (still && !edited) return;
+    out.push({ kind: edited ? 'changed' : 'moved', a: ka, b: kb, at: y.at, d: y.at - x.at });
+  }
+  function flush() {
+    var gone = run.filter(function (x) { return x.a; }), come = run.filter(function (x) { return x.b; });
+    var n = Math.min(gone.length, come.length), k;
+    for (k = 0; k < n; k++) pair(gone[k].a, come[k].b);
+    for (k = n; k < gone.length; k++) out.push({ kind: 'removed', a: keySide(gone[k].a.k), b: null, at: gone[k].a.at });
+    for (k = n; k < come.length; k++) out.push({ kind: 'added', a: null, b: keySide(come[k].b.k), at: come[k].b.at });
+    run = [];
+  }
+  while (i < a.length && j < b.length) {
+    gap = b[j].at - a[i].at;
+    if (Math.abs(gap) <= KEY_TOLERANCE) { flush(); pair(a[i], b[j]); i++; j++; }
+    else if (gap > 0) run.push({ a: a[i++] });
+    else run.push({ b: b[j++] });
+  }
+  while (i < a.length) run.push({ a: a[i++] });
+  while (j < b.length) run.push({ b: b[j++] });
+  flush();
+
+  out.sort(function (x, y) { return x.at - y.at; });
+  var counts = { a: a.length, b: b.length, moved: 0, changed: 0, added: 0, removed: 0 };
+  // The shift is measured on the same basis the keys were paired on. Taken from
+  // the stored times instead, keys that rode a moved layer and then moved again
+  // read as the sum of both: a key slid 240 s on a layer that also moved 240 s
+  // said "moved by +480 s", double what anyone did to it.
+  var shift = out.length > 1 && out.every(function (e) {
+    return e.kind === 'moved' && Math.abs(e.d - out[0].d) <= KEY_TOLERANCE;
+  }) ? out[0].d : null;
+  out.forEach(function (e) { counts[e.kind]++; delete e.at; delete e.d; });
+  counts.total = out.length;
+  return { entries: out, counts: counts, shift: shift, onLayer: !!(offA || offB) };
+}
+
+/* "3 of 12 keys moved by +2.000 s" when one shift explains every line -- the
+ * common case of a fade slid along as a whole -- otherwise the tally by kind. */
+function keySummary(keys) {
+  var c = keys.counts;
+  var head = c.a === c.b ? plural(c.b, 'key') : c.a + ' → ' + plural(c.b, 'key');
+  if (keys.shift !== null) {
+    var d = keys.shift;
+    return head + ' · ' + (c.total === c.b ? 'all' : c.total) + ' moved by ' +
+           (d > 0 ? '+' : '') + fmt(d) + ' s' + (keys.onLayer ? ' on the layer' : '');
+  }
+  var bits = [];
+  if (c.moved) bits.push(c.moved + ' moved');
+  if (c.changed) bits.push(c.changed + ' changed');
+  if (c.added) bits.push(c.added + ' added');
+  if (c.removed) bits.push(c.removed + ' removed');
+  return head + ' · ' + bits.join(', ');
+}
+
+/* One parameter on one layer -> a node, or null when nothing changed.
+ *
+ * A set value (`static`, format 4) is one key someone set and left, so only its
+ * value is compared -- its key sits wherever the layer starts, and a layer moved
+ * along the timeline has not changed its blend mode. A format 4 file leaves a
+ * parameter out when it sits at its default, so a set value present on one side
+ * only went to or came from the default, and says so; it is not an addition.
+ */
+function diffParameter(fa, fb, offA, offB, layerType) {
+  var f = fb || fa;
+  var opts = optionNames(layerType, f.name, f.valueType);
+  var node = { kind: 'changed', entity: 'parameter',
+               label: 'parameter ' + showWhitespace(f.label || f.name), changes: [] };
+  if (opts) node.options = opts;
+  function setValue(x) { return valueText(((x.keys || [])[0] || {}).value, opts); }
+  function atDefault(x) {
+    var d = x['default'];
+    return (d === null || d === undefined ? '' : valueText(d, opts) + ', ') + 'the default';
+  }
+  function animated(x) {
+    return 'animated, ' + plural((x.keys || []).length, 'key') + (x.expression ? ' + expression' : '');
+  }
+
+  if (!fa || !fb) {
+    if (f.static === true) {
+      node.changes.push({ field: 'set value', from: fa ? setValue(fa) : atDefault(fb),
+                          to: fb ? setValue(fb) : atDefault(fa) });
+      return node;
+    }
+    node.kind = fa ? 'removed' : 'added';
+    node.detail = plural((f.keys || []).length, 'key') + (f.expression ? ' · expression' : '');
+    return node;
+  }
+
+  if (fa.static === true || fb.static === true) {
+    if (fa.static === true && fb.static === true) {
+      var va = ((fa.keys || [])[0] || {}).value, vb = ((fb.keys || [])[0] || {}).value;
+      if (sameValue(va, vb)) return null;
+    }
+    node.changes.push({ field: 'set value', from: fa.static === true ? setValue(fa) : animated(fa),
+                        to: fb.static === true ? setValue(fb) : animated(fb) });
+    return node;
+  }
+
+  if ((fa.expression || null) !== (fb.expression || null)) {
+    node.changes.push({ field: 'expression', from: fa.expression || null, to: fb.expression || null });
+  }
+  var keys = keyEntries(fa.keys, fb.keys, offA, offB);
+  if (keys.counts.total) {
+    node.keys = keys;
+    node.detail = keySummary(keys);
+  }
+  return node.changes.length || node.keys ? node : null;
+}
+
+/* One layer's parameters -> {nodes, lines}; `lines` is how many key lines and
+ * field changes they print, the measure diffLayerKeys picks a time basis by.
+ *
+ * `keep` filters out the categories this pair cannot compare. */
+function layerKeyNodes(la, lb, offA, offB, keep) {
+  var fa = ((la && la.fields) || []).filter(keep), fb = ((lb && lb.fields) || []).filter(keep);
+  // Fields are a list, not a map: a layer can carry two fields of one name
+  // (two `dither` on a gradient in the reference show), and matchBy pairs those
+  // in order rather than comparing both against the last.
+  var m = matchBy(fa, fb, function (f) { return String(f.name); });
+  var type = (lb || la).type, nodes = [], lines = 0;
+  function add(n) {
+    if (!n) return;
+    nodes.push(n);
+    lines += (n.keys ? n.keys.counts.total : 0) + n.changes.length + (n.kind === 'changed' ? 0 : 1);
+  }
+  m.common.forEach(function (p) { add(diffParameter(p.a, p.b, offA, offB, type)); });
+  m.added.forEach(function (f) { add(diffParameter(null, f, offA, offB, type)); });
+  m.removed.forEach(function (f) { add(diffParameter(f, null, offA, offB, type)); });
+  return { nodes: nodes, lines: lines };
+}
+
+/* Key times are track seconds, and a layer dragged along the timeline takes its
+ * keys with it. Compared as they stand, that one drag reports every key on the
+ * layer as moved; the layer's tStart change already says it, once. So a layer
+ * whose start moved is compared both ways -- keys measured from the layer's
+ * start, and keys as they stand -- and whichever explains more of them wins.
+ * Both happen: across the reference show's Sep 21 and Sep 26 saves, 425 keys on
+ * moved layers followed their layer and 54 stayed where they were, which is a
+ * layer trimmed at its head with the animation left in place. Choosing one rule
+ * for all layers would misreport whichever kind it did not pick, key by key.
+ */
+function diffLayerKeys(la, lb, keep) {
+  var sa = la && typeof la.tStart === 'number' ? la.tStart : null;
+  var sb = lb && typeof lb.tStart === 'number' ? lb.tStart : null;
+  var still = layerKeyNodes(la, lb, 0, 0, keep);
+  if (sa === null || sb === null || Math.abs(sa - sb) <= KEY_TOLERANCE) return still.nodes;
+  var along = layerKeyNodes(la, lb, sa, sb, keep);
+  return along.lines <= still.lines ? along.nodes : still.nodes;
+}
+
+/* The two keyframes documents against each other, merged into the snapshot
+ * diff's tree. Returns {nodes, notes}: `nodes` are the track nodes this had to
+ * create plus any CDL nodes; parameters on a track or layer the snapshot diff
+ * already reported are hung on that node in place.
+ *
+ * What a file cannot say is skipped rather than guessed, and `notes` says so.
+ * A side with no keyframes at all is a plugin capture, not a show without
+ * animation -- the census mistake once more, which would report every parameter
+ * in the show as added. A format 2 file left out any CDL set with one key, which
+ * is nearly every graded layer, so CDLs are only compared when both files are
+ * format 3 or later; a file older than format 4 never wrote set values, so they
+ * need format 4 on both sides. Two files of the same old format say nothing:
+ * both lack the category, so nothing in the pair is being withheld.
+ *
+ * A layer whose keyframes are on one side only is compared against nothing only
+ * when the other side's snapshot shows the layer still exists. The file lists
+ * only layers with animation or a set value, so absence alone could mean the
+ * layer went or that it is now at its defaults, and the first is the snapshot
+ * diff's news to tell. Tracks off every setlist are in the keyframes files but
+ * not in the snapshot, so a layer appearing on one of those is not reported --
+ * the snapshot diff has the same blind spot there, and claiming an addition the
+ * snapshot cannot confirm would be worse than saying nothing.
+ */
+function diffKeyframes(snapA, snapB, docA, docB, tracks) {
+  if (docA && docA.format !== 'd3_keyframes') docA = null;
+  if (docB && docB.format !== 'd3_keyframes') docB = null;
+  var notes = [], out = [];
+  if (!docA || !docB) {
+    if (docA || docB) {
+      notes.push('Only the ' + (docA ? 'Before' : 'After') + ' file carries keyframes (a .d3 or ' +
+                 'an extractor _keyframes.json does; a snapshot .json does not), so changes to ' +
+                 'animation, set values and CDLs between these two cannot be reported.');
+    }
+    return { nodes: out, notes: notes };
+  }
+
+  var fa = keyFormat(docA), fb = keyFormat(docB), low = Math.min(fa, fb);
+  function older() { return fa < fb ? 'Before' : 'After'; }
+  var cdlOk = low >= 3 || fa === fb, staticOk = low >= 4;
+  if (!cdlOk) {
+    notes.push('The ' + older() + ' keyframes are format ' + low + ', which left out a CDL set ' +
+               'with a single key -- nearly every graded layer -- so grade changes cannot be ' +
+               'reported. Drop the .d3 itself, or re-export it from the extractor, to compare them.');
+  }
+  if (!staticOk && fa !== fb) {
+    notes.push('The ' + older() + ' keyframes are format ' + low + ', which does not record set ' +
+               'values (a parameter set once and left, such as a blend mode or a mapping), so ' +
+               'changes to them cannot be reported. Drop the .d3 itself, or re-export it from ' +
+               'the extractor, to compare them.');
+  }
+  function keep(f) {
+    if (f.static === true && !staticOk) return false;
+    if (f.valueType === CDL_VALUE_TYPE && !cdlOk) return false;
+    return true;
+  }
+
+  function snapTrack(snap, id) {
+    var ts = (snap && snap.tracks) || [];
+    for (var i = 0; i < ts.length; i++) if (String(ts[i].id) === id) return ts[i];
+    return null;
+  }
+  // The snapshot's own record of a keyframes layer: by id, then by groupPath +
+  // name where that is unique, for a capture whose ids are not the extractor's.
+  function snapLayer(st, l) {
+    if (!st) return null;
+    var ls = st.layers || [], i, byKey = [];
+    for (i = 0; i < ls.length; i++) {
+      if (typeof l.id === 'string' && l.id !== '' && ls[i].id === l.id) return ls[i];
+      if (layerKey(ls[i]) === layerKey(l)) byKey.push(ls[i]);
+    }
+    return byKey.length === 1 ? byKey[0] : null;
+  }
+
+  var tm = matchBy(docA.tracks, docB.tracks, function (t) { return String(t.id); });
+  var pairs = tm.common.map(function (p) { return { a: p.a, b: p.b }; })
+    .concat(tm.added.map(function (t) { return { a: null, b: t }; }))
+    .concat(tm.removed.map(function (t) { return { a: t, b: null }; }));
+
+  pairs.forEach(function (p) {
+    var id = String((p.b || p.a).id);
+    var trackNode = tracks.byId[id];
+    // An added or removed track already says everything about its keyframes.
+    if (trackNode && trackNode.kind !== 'changed') return;
+    var stA = snapTrack(snapA, id), stB = snapTrack(snapB, id);
+    var la = (p.a && p.a.layers) || [], lb = (p.b && p.b.layers) || [];
+    var useIds = (!la.length || layersHaveIds(la)) && (!lb.length || layersHaveIds(lb));
+    var m = matchBy(la, lb, useIds ? layerIdKey : layerKey);
+    var index = tracks.layerIndex[id] || null;
+    var labelSnap = layerLabeller(stB ? stB.layers : []);
+    var labelKeys = layerLabeller(lb.length ? lb : la);
+    var created = [];
+
+    // Labelled the way the snapshot diff labels it when the snapshot holds the
+    // layer, so a layer reads the same whichever kind of change put it here.
+    function hang(l, kids) {
+      if (!kids.length) return;
+      var node = index && ((typeof l.id === 'string' && index.byId[l.id]) || index.byKey[layerKey(l)]);
+      if (node && node.kind !== 'changed') return;
+      if (!node) {
+        var own = snapLayer(stB, l);
+        node = { kind: 'changed', entity: 'layer',
+                 label: 'layer ' + (own ? labelSnap(own) : labelKeys(l)),
+                 changes: [], children: [] };
+        created.push(node);
+      }
+      node.children = (node.children || []).concat(kids);
+    }
+
+    m.common.forEach(function (q) { hang(q.b, diffLayerKeys(q.a, q.b, keep)); });
+    m.removed.forEach(function (l) {
+      if (snapLayer(stB, l)) hang(l, diffLayerKeys(l, null, keep));
+    });
+    m.added.forEach(function (l) {
+      if (snapLayer(stA, l)) hang(l, diffLayerKeys(null, l, keep));
+    });
+
+    if (!created.length) return;
+    if (trackNode) {
+      trackNode.children = (trackNode.children || []).concat(created);
+    } else {
+      trackNode = { kind: 'changed', entity: 'track', label: 'track ' + showWhitespace(id),
+                    detail: stB && stB.trashed ? 'in the trash' : null,
+                    changes: [], children: created };
+      tracks.byId[id] = trackNode;
+      out.push(trackNode);
+    }
+  });
+
+  // A CDL is a resource many layers can name, so an edit to its own values is
+  // one node, not one per layer that applies it. Only CDLs both files decoded:
+  // a table holds just the CDLs some layer names, so one entering or leaving it
+  // is the layers' news, already reported on them.
+  if (cdlOk && low >= 3) {
+    var ca = docA.cdls || {}, cb = docB.cdls || {};
+    Object.keys(cb).sort().forEach(function (ref) {
+      var x = ca[ref], y = cb[ref];
+      if (!x || x.error || y.error) return;
+      var ch = [];
+      ['slope', 'power', 'offset'].forEach(function (k) {
+        var p = x[k] || [], q = y[k] || [];
+        var same = p.length === q.length && p.every(function (v, i) { return sameValue(v, q[i]); });
+        if (!same) ch.push({ field: k, from: p.map(fmt).join(' '), to: q.map(fmt).join(' ') });
+      });
+      if (!sameValue(x.saturation, y.saturation)) {
+        ch.push({ field: 'saturation', from: x.saturation, to: y.saturation });
+      }
+      if (ch.length) {
+        out.push({ kind: 'changed', entity: 'cdl', label: 'cdl ' + showWhitespace(y.name || ref),
+                   detail: ref, changes: ch });
+      }
+    });
+  }
+  return { nodes: out, notes: notes };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
                      mediaReport: mediaReport, cueReport: cueReport,
@@ -1489,5 +1900,6 @@ if (typeof module !== 'undefined' && module.exports) {
                      systemReport: systemReport, exportDiff: exportDiff,
                      keyframeReport: keyframeReport, timecodeAt: timecodeAt,
                      cdlSwatch: cdlSwatch, gradeRgb: gradeRgb,
-                     matchBy: matchBy, orderDiff: orderDiff, fmt: fmt };
+                     matchBy: matchBy, orderDiff: orderDiff, fmt: fmt,
+                     KEY_TOLERANCE: KEY_TOLERANCE, KEY_FOLD: KEY_FOLD };
 }

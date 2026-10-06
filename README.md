@@ -28,6 +28,10 @@ nothing leaves the browser.
   **Before**. While a file is dragged over the window an overlay says so; drop
   it on the **After** box instead to load it there. Missing the box used to hand
   the file to the browser, which navigated away from everything loaded.
+- **Two files at once, anywhere** — they fill both boxes, older as **Before**,
+  ordered the way the folder picker orders captures: by the timestamp at the
+  start of the name, or by file date when there is none. A `_keyframes.json`
+  alongside does not count as one of the two.
 - **One file** — drop a `.d3` (or an exported `.json`) on either box. The
   Media report, Tags & notes, Keyframes, Transport info and System info tabs
   describe it. See [Which file a tab describes](#which-file-a-tab-describes).
@@ -47,7 +51,7 @@ never a mix of the two**: After when it has what the tab needs, otherwise Before
 
 | Tab | Reads |
 | --- | --- |
-| Changes | Both: Before against After. Needs a file in each. |
+| Changes | Both: Before against After. Needs a file in each. Keyframes are compared too when both slots hold them. |
 | Media report, Tags & notes, Transport info, System info | The After snapshot if After holds one, otherwise Before's. |
 | Keyframes | The After keyframes if After holds keyframes, otherwise Before's. Cue markers, timecode and track length come from the snapshot **in that same slot**, never the other one. |
 
@@ -151,6 +155,80 @@ as `↕ moved` lines rather than as a hundred removals paired with a hundred
 additions somewhere further down. Blocks over twelve lines start collapsed, and
 open automatically while a search is running.
 
+### Keyframes
+
+When both slots hold keyframes — a `.d3` in each, or a `_keyframes.json` beside
+each snapshot — the tree also says what changed in the programming: a key moved,
+its value or interpolation changed, a key added or removed, an expression
+edited, a set value changed, a CDL's own values edited. Each changed parameter
+is a `parameter` row under the layer it belongs to, on the same layer row the
+snapshot changes use, and under its track; a layer or track that changed only in
+its keyframes gets a row for that. A choice reads by name, as on the Keyframes
+tab: `blendMode  Over (0) → Screen (8)`.
+
+```
+~ layer [VID] 240_plague_stormy_loop_ll180
+        tStart   221.221 → 217.484
+  ~ parameter brightness   6 → 4 keys · 4 moved, 2 removed
+      keys 6 → 4  −2  ↔4 moved
+```
+
+A parameter's row says what happened to its keys in one line, and its key lines
+sit in a block below it, one per changed key, with the key's time before and
+after. A block over twelve lines starts folded. When one shift explains every
+key — a fade slid along as a whole — the row says `all moved by +2 s`. On a
+layer that also moved it says `moved by +2 s on the layer`: the slide relative
+to the layer, not counting the layer's own move, which its `tStart` line
+already reports. The key lines still give track times.
+
+**A layer dragged along the timeline is one change, not one per key.** Key times
+are track seconds, and Designer moves a layer's keys with it, so read as they
+stand a single drag would report every key on the layer as moved. The layer's
+`tStart` line already says it. So a layer whose start moved is compared twice —
+keys measured from the layer's start, and keys as they stand — and whichever
+explains more of them is used. Both happen on a real show: between two saves of
+the reference show four days apart, 425 keys on moved layers went with their
+layer and 54 stayed put, which is a layer trimmed at its head with the animation
+left where it was. One fixed rule would misreport whichever of the two it did
+not pick, key by key.
+
+**A key is matched by time, within 0.00001 s.** Like a cue, a key has only its
+position to be known by. Key times survive a save exactly; what moves them is
+the extractor rounding times to six decimals, so a key measured from its layer's
+start drifts by up to 0.000001 s — just past the 1e-6 the rest of the diff
+uses, which is why that cannot be used here. 0.00001 is ten times the largest
+drift across 3,306 keys on the reference show's two saves, and nine times below
+the tightest real gap between two keys of one parameter (0.000089 s). A key that
+really moved pairs with where it went as one `moved` line, provided it did not
+pass a key that stayed; past one, it reads as removed here and added there.
+
+**A set value is compared by value only.** Its one key sits wherever the layer
+starts, so a moved layer has not changed its blend mode. A format 4 file leaves
+out a parameter at its default, so a set value on one side only reads as a
+change to or from the default (`Screen (8) → Over (0), the default`), never as a
+parameter added or removed.
+
+**A CDL edited is one row,** `cdl <name>`, beside the tracks, with its slope,
+power, offset or saturation — not one row per layer that applies it. A layer
+switching to another CDL is a key on that layer's `cdl` parameter.
+
+**What a file cannot answer is skipped and noted, never guessed.** With
+keyframes on one side only, the pair gets one note and no keyframe rows: a
+snapshot `.json` carries no keyframes, which is not the same as a show with no
+animation, and reading it that way would report every parameter in the show as
+added. A format 2 file left out nearly every CDL and a format 3 file never wrote
+set values, so against a newer file those categories are skipped with a note
+each. Two files of the same older format say nothing, since neither side has the
+category to withhold.
+
+A layer whose keyframes are in one file only is compared against nothing only
+when the other side's snapshot shows the layer still exists. A keyframes file
+lists only layers with animation or a set value, so its absence could mean the
+layer was deleted, which the snapshot diff reports, or that it is now at its
+defaults. A track on no setlist is in the keyframes file but not the snapshot,
+so a layer appearing there is not reported — the snapshot diff has the same
+blind spot, and claiming an addition nothing can confirm would be worse.
+
 ### Summary
 
 Above the tree, three columns: what changed per entity type, the fields that
@@ -201,8 +279,9 @@ project was saved". The plugin does not record either, so on a plugin capture
 the report says once, above the tracks, that it cannot tell, rather than
 printing a show with nothing disabled.
 
-The Changes tab reports the same two flags on a changed layer, as `disabled`
-and `muted` lines, and only when both files are `.d3` archives. Diffing a
+The Changes tab reports the same two flags on a changed layer, as a `state`
+line (`enabled → disabled`) and a `mute` line (`unmuted → muted`), and only
+when both files are `.d3` archives. Diffing a
 plugin capture against an archive would otherwise read every layer as newly
 enabled; instead the pair skips the comparison and a note says which side could
 not answer. Disabling a group reports each layer inside it, because each one
@@ -511,6 +590,9 @@ Entities are matched by **identity, never array position**:
 | media     | `path` (falls back to `name`)          |
 | cue       | `beat`, within 0.005 beats             |
 | transport | `name`                                 |
+| parameter | field `name`, within its layer (repeats pair in order) |
+| key       | `t`, within 0.00001 s, from the layer's start or as it stands — see [Keyframes](#keyframes) |
+| cdl       | its resource path                      |
 
 A layer inserted at the top of a track is therefore **one addition**, not "every
 layer below it moved". That is the whole reason this exists instead of `diff`.
@@ -682,8 +764,9 @@ tools/selftest.js Regression checks against real captures.
 tools/deploy.sh   Version bump, commit, push, wait for Pages.
 ```
 
-`diff.js` exports `diffSnapshots(a, b)` under CommonJS as well as defining it
-globally for the page, which is why the self-test can `require` it directly.
+`diff.js` exports `diffSnapshots(a, b, keys)` under CommonJS as well as defining
+it globally for the page, which is why the self-test can `require` it directly.
+`keys` is optional: `{a, b}`, each the extractor's keyframes document or null.
 
 `diffSnapshots` returns:
 
@@ -695,6 +778,8 @@ globally for the page, which is why the self-test can `require` it directly.
   nodes:  [ { kind, entity, label, detail?,
               changes?: [{field, from, to}],
               order?:   { entries: [{kind, id, a, b}], counts: {…} },  // transports
+              keys?:    { entries: [{kind, a, b}], counts: {…} },      // parameters
+              options?: [ … ],                                         // parameters
               children?: [] } ]
 }
 ```
@@ -710,7 +795,14 @@ took the most damage" is the question being asked.
 `notes` is non-empty whenever the diff declined to report something. A quieter
 tally earned by withholding has to say so, or it reads as "nothing happened".
 
-`entity` is one of `snapshot`, `transport`, `track`, `layer`, `cue`, `media`.
+`keys` is a parameter's changed keys. Entry `kind` is `moved`, `changed`,
+`added` or `removed`; `a` and `b` are `{t, value, interpolation}` on each side,
+null where absent, with `t` in track seconds and a choice value as its number —
+`options` names it. Like running-order lines they are not nodes, do not enter
+`counts`, and rank once per parameter as the field `keys`.
+
+`entity` is one of `snapshot`, `transport`, `track`, `layer`, `cue`, `media`,
+`parameter`, `cdl`.
 It is carried on the node rather than parsed back out of the label, so the
 summary never has to guess what a row is.
 
@@ -812,7 +904,8 @@ the deploy. Do it through the script rather than by hand:
 ```
 tools/deploy.sh "commit message"                 # patch: 1.0.0 -> 1.0.1
 tools/deploy.sh minor "commit message"           # 1.0.0 -> 1.1.0
-LOGS=/path/to/captures tools/deploy.sh "…"       # gate on the selftest
+LOGS=/path/to/captures tools/deploy.sh "…"       # a corpus other than logs.local
+SKIP_SELFTEST=1 tools/deploy.sh "…"              # no corpus on this machine
 ```
 
 It bumps the version in the footer, commits, tags `vX.Y.Z`, pushes, then polls
@@ -823,10 +916,13 @@ The version lives in exactly one place, the `#ver` span in `index.html`, and is
 rewritten by the script. Don't edit it by hand; a footer nobody remembers to
 update is worse than none, because it looks authoritative while being wrong.
 
-The selftest gates the deploy when it can find captures to run against —
-`LOGS`, or `../d3plg_susan_summary/example_logs` by default. If neither exists
-the script warns and deploys anyway rather than blocking on a machine that
-simply doesn't have the logs checked out.
+The selftest gates the deploy. It runs against `LOGS` when that is set, and
+otherwise finds its own captures the way `node tools/selftest.js` does: the
+folders in the gitignored `tools/logs.local`, then the plugin repo next door.
+If it finds none it stops rather than deploying. An earlier version warned and
+deployed anyway, and its default folder did not exist, so for a while every
+deploy went out untested without anyone noticing. `SKIP_SELFTEST=1` is the
+deliberate way past, and it says so.
 
 ## Tests
 
@@ -856,6 +952,9 @@ automatic transport in it at all.
   way to show surrounding context the way `diff -U` does.
 - Only two snapshots at a time. A folder-wide timeline ("show me this project
   across the week") would need a different UI and is not built.
+- Keyframe changes on a track no setlist plays can show changed parameters but
+  never an added or removed layer: neither file's snapshot lists that track's
+  layers, so absence from a keyframes file proves nothing about them.
 - The media report, tags & notes, keyframes and transport info read **one file**. None marks what
   changed since the other — deliberately, since the tree already does
   comparison, but "which versions moved since yesterday" is a fair thing to want
