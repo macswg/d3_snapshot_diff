@@ -490,6 +490,15 @@ non-space characters: `bright*` finds `brightness` and `brightness (shift)`, and
 built from them). A leading `*` drops the anchor, so `*ness` matches anywhere. A
 term without `*` still matches anywhere in the text, as it always has.
 
+A term starting with `-` excludes: `cue -120_liquid` is every changed cue
+outside that track, and `-cue` on its own is everything except cues. `not:cue`
+does the same for anyone who types the word. An exclusion is checked against
+the same path a search term is, so excluding a track's name drops everything
+inside it, and a track kept because its name matched still loses the rows an
+exclusion names. Exclusions apply to the whole search, not just to the `+`
+alternative they sit in. Only a leading `-` counts, so a name like `10-12`
+still searches as written. This works the same way on every tab.
+
 On the media report it matches track names, filenames, versions and layer names.
 On tags & notes it matches track names, tag types and text, notes and timecodes.
 On transport info it matches transport names, setlists and track names.

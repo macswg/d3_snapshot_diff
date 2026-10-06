@@ -49,6 +49,7 @@
   /* flex-basis 100% consumes the row, so the folder slot always drops to its
      own line rather than trailing the title when the window is wide. */
   .slot.row { flex-basis: 100%; align-items: flex-start; }
+  .label .ent { color: var(--dim); }
   .slot label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .07em; }
   .drop {
     border: 1px dashed var(--edge); border-radius: 6px; padding: 9px 13px;
@@ -638,7 +639,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.13.0</span>
+  <span id="ver">v2.14.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -1044,29 +1045,59 @@ function hay(node) {
  * Word starts count after any non-alphanumeric, `_` included, because show names
  * are built from underscores: `las*` has to find 300_lasers.
  */
-var queryAlts = [];
+/* A term led by `-` (or `not:`) excludes: `cue -whiskey` is every cue outside
+ * 290_whiskey_whiskey. `-` is the convention search boxes already teach; `not:`
+ * is accepted for anyone who types the word. Exclusions apply to the whole
+ * query, not to the one alternative they were typed in, because `a + b -c`
+ * read as "a, or b without c" is a reading nobody intends. They are tested
+ * against the same path a positive term is, so excluding a track's name drops
+ * everything inside it. A query of exclusions alone matches everything else.
+ * Only a leading `-` negates, so a name like 10-12 still searches as written.
+ */
+var queryAlts = [], queryNeg = [];
 
 function reEscape(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
+function compileTerm(t) {
+  if (t.indexOf('*') < 0) return { text: t, re: null, mark: reEscape(t) };
+  var body = t.split('*').map(reEscape).join('\\S*');
+  return { text: t, mark: body,
+           re: new RegExp((t.charAt(0) === '*' ? '' : '(?:^|[^a-z0-9])') + body) };
+}
+function termHits(t, h) { return t.re ? t.re.test(h) : h.indexOf(t.text) !== -1; }
+function negated(t) {
+  var m = /^(?:-|not:)(.*)$/.exec(t);
+  return m ? m[1] : null;
+}
+
+// -> {alts, neg}. `alts` is [[]] for a query of exclusions alone: one empty
+// alternative, which every row satisfies before the exclusions are applied.
 function compileQuery(q) {
-  return q.split(/\s*\+\s*/).map(function (alt) {
-    return alt.split(/\s+/).filter(function (t) { return t && t.replace(/\*/g, ''); })
-      .map(function (t) {
-        if (t.indexOf('*') < 0) return { text: t, re: null, mark: reEscape(t) };
-        var body = t.split('*').map(reEscape).join('\\S*');
-        return { text: t, mark: body,
-                 re: new RegExp((t.charAt(0) === '*' ? '' : '(?:^|[^a-z0-9])') + body) };
-      });
+  var neg = [];
+  var alts = q.split(/\s*\+\s*/).map(function (alt) {
+    return alt.split(/\s+/).filter(function (t) {
+      var n = negated(t);
+      if (n === null) return t && t.replace(/\*/g, '');
+      if (n.replace(/\*/g, '')) neg.push(compileTerm(n));
+      return false;
+    }).map(compileTerm);
   }).filter(function (alt) { return alt.length; });
+  if (!alts.length && neg.length) alts = [[]];
+  return { alts: alts, neg: neg };
+}
+
+// No exclusion in this text. Where a report keeps everything under a matching
+// track, it still has to drop the rows an exclusion names.
+function clean(h) {
+  for (var i = 0; i < queryNeg.length; i++) if (termHits(queryNeg[i], h)) return false;
+  return true;
 }
 
 function hitsText(h) {
-  if (!queryAlts.length) return false;
+  if (!queryAlts.length || !clean(h)) return false;
   for (var a = 0; a < queryAlts.length; a++) {
     var alt = queryAlts[a], ok = true;
-    for (var i = 0; i < alt.length && ok; i++) {
-      ok = alt[i].re ? alt[i].re.test(h) : h.indexOf(alt[i].text) !== -1;
-    }
+    for (var i = 0; i < alt.length && ok; i++) ok = termHits(alt[i], h);
     if (ok) return true;
   }
   return false;
@@ -1080,7 +1111,7 @@ function hits(node, path) { return hitsText(path + ' ' + hay(node)); }
 function filterNodes(nodes, path) {
   var out = [];
   nodes.forEach(function (n) {
-    if (hits(n, path)) { out.push(n); return; }
+    if (hits(n, path)) { out.push(queryNeg.length ? prune(n, path) : n); return; }
     var kids = filterNodes(n.children || [], path + ' ' + hay(n));
     if (kids.length) {
       var copy = {};
@@ -1091,6 +1122,18 @@ function filterNodes(nodes, path) {
     }
   });
   return out;
+}
+
+// A matching node with the excluded rows taken out from under it. Without this
+// `track -cue` would keep every cue, since the track matched and a match brings
+// its whole subtree.
+function prune(n, path) {
+  if (!n.children) return n;
+  var p = path + ' ' + hay(n), copy = {};
+  for (var k in n) if (Object.prototype.hasOwnProperty.call(n, k)) copy[k] = n[k];
+  copy.children = n.children.filter(function (c) { return clean(p + ' ' + hay(c)); })
+    .map(function (c) { return prune(c, p); });
+  return copy;
 }
 
 function countMatches(nodes, path) {
@@ -1119,6 +1162,7 @@ function markup(text) {
   queryAlts.forEach(function (alt) {
     alt.forEach(function (t) { terms.push(t); });
   });
+  if (!terms.length) return esc(raw);
   terms.sort(function (a, b) { return b.text.length - a.text.length; });
   var re = new RegExp(terms.map(function (t) { return t.mark; }).join('|'), 'gi'), out = '', last = 0, m;
   while ((m = re.exec(raw)) !== null) {
@@ -1233,6 +1277,16 @@ function hidden(node) {
   return n ? plural(n, 'change') : plural((node.changes || []).length, 'field') + ' changed';
 }
 
+/* A parameter row opens with the word dimmed and a colon, so the eye lands on
+ * the parameter's own name: under a layer row, "parameter mapping" read as one
+ * name. Only the rendering changes. The label is still the plain string, so
+ * search and the export see "parameter mapping" as before. */
+function labelHtml(node) {
+  var lead = 'parameter ';
+  if (node.entity !== 'parameter' || node.label.indexOf(lead) !== 0) return markup(node.label);
+  return '<span class="ent">' + markup('parameter') + ':</span> ' + markup(node.label.slice(lead.length));
+}
+
 function renderNode(node) {
   // Only a track folds, and only when there is something under it: an added or
   // removed track is a single row, and a caret on it would open onto nothing.
@@ -1251,7 +1305,7 @@ function renderNode(node) {
     html = '<div class="' + cls + '"><div class="row">';
   }
   html += '<span class="sigil">' + SIGIL[node.kind] + '</span>';
-  html += '<span class="label">' + markup(node.label) + '</span>';
+  html += '<span class="label">' + labelHtml(node) + '</span>';
   if (node.detail) html += '<span class="detail">' + markup(node.detail) + '</span>';
   if (folds) {
     html += '<span class="fold"></span>' +
@@ -1401,7 +1455,8 @@ function filterTracks(tracks, hayOf) {
     if (hitsText(path)) {
       n++;
       t.items.forEach(function (it) { if (hitsText(path + ' ' + hayOf(it))) n++; });
-      out.push({ track: t, items: t.items, pos: i + 1, context: false, open: true });
+      out.push({ track: t, pos: i + 1, context: false, open: true,
+                 items: t.items.filter(function (it) { return clean(path + ' ' + hayOf(it)); }) });
       return;
     }
     var kept = t.items.filter(function (it) { return hitsText(path + ' ' + hayOf(it)); });
@@ -1666,11 +1721,11 @@ function kfFieldHay(f) {
 function kfHits(t) {
   if (!query) return t.fieldCount;
   var th = kfTrackHay(t);
-  if (hitsText(th)) return t.fieldCount;
+  if (hitsText(th) && !queryNeg.length) return t.fieldCount;
   var n = 0;
   t.layers.forEach(function (l) {
     var lh = th + ' ' + kfLayerHay(l);
-    if (hitsText(lh)) { n += l.fields.length; return; }
+    if (hitsText(lh) && !queryNeg.length) { n += l.fields.length; return; }
     l.fields.forEach(function (f) { if (hitsText(lh + ' ' + kfFieldHay(f))) n++; });
   });
   return n;
@@ -1695,7 +1750,10 @@ function kfRows(t) {
       return !col || col.members.indexOf(f.family) >= 0;
     });
     if (!fields.length) return;
-    var hit = fields.map(function (f) { return layerHit || hitsText(lh + ' ' + kfFieldHay(f)); });
+    var hit = fields.map(function (f) {
+      var fh = lh + ' ' + kfFieldHay(f);
+      return layerHit ? clean(fh) : hitsText(fh);
+    });
     var match = hit.some(function (h) { return h; });
     out.push({ layer: l, key: t.id + '|' + (l.id || '@' + i), fields: fields, hit: hit,
                match: match, byField: match && !layerHit,
@@ -2194,6 +2252,7 @@ function kfListing() {
       l.fields.forEach(function (f, fi) {
         if (col && col.members.indexOf(f.family) < 0) return;
         var byKey = false;
+        if (layerHit && !clean(lh + ' ' + kfFieldHay(f))) return;
         if (!layerHit) {
           var s = kfListSummary(t, f), base = lh + ' ' + kfFieldHay(f) + ' ' + s.hay;
           if (!hitsText(base)) {
@@ -2211,7 +2270,7 @@ function kfListing() {
         var layerHit = trackHit || hitsText(lh);
         l.statics.forEach(function (sv) {
           if (col && col.members.indexOf(sv.family) < 0) return;
-          if (!layerHit && !hitsText(lh + ' ' + kfStaticHay(sv))) return;
+          if (layerHit ? !clean(lh + ' ' + kfStaticHay(sv)) : !hitsText(lh + ' ' + kfStaticHay(sv))) return;
           rows.push({ layer: l, set: sv });
           nset++;
         });
@@ -2729,8 +2788,10 @@ function filterTransports(list) {
     if (hitsText(path)) {
       n++;
       tr.tracks.forEach(function (t) { if (hitsText(path + ' ' + tlineHay(t))) n++; });
-      out.push({ transport: tr, tracks: numbered(tr.tracks), pos: i + 1,
-                 context: false, open: true });
+      out.push({ transport: tr, pos: i + 1, context: false, open: true,
+                 tracks: numbered(tr.tracks).filter(function (w) {
+                   return clean(path + ' ' + tlineHay(w.track));
+                 }) });
       return;
     }
     var kept = numbered(tr.tracks).filter(function (w) {
@@ -3220,14 +3281,15 @@ document.getElementById('export').addEventListener('click', exportJson);
 (function () {
   var box = document.getElementById('q');
   box.addEventListener('input', function () {
-    queryAlts = compileQuery(box.value.trim().toLowerCase());
+    var c = compileQuery(box.value.trim().toLowerCase());
+    queryAlts = c.alts; queryNeg = c.neg;
     // A box holding only `+` or `*` asks for nothing; treating it as a query
     // would report "nothing matches" for a search nobody has typed yet.
     query = queryAlts.length ? box.value.trim().toLowerCase() : '';
     paint();
   });
   box.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { box.value = ''; query = ''; queryAlts = []; paint(); }
+    if (e.key === 'Escape') { box.value = ''; query = ''; queryAlts = []; queryNeg = []; paint(); }
   });
 })();
 
