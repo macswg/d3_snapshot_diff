@@ -24,6 +24,10 @@ step and no server. Use it hosted at **https://macswg.github.io/d3_snapshot_diff
 or open `index.html` locally straight from disk — both work identically since
 nothing leaves the browser.
 
+- **Anywhere on the page** — a file dropped outside the two boxes loads as
+  **Before**. While a file is dragged over the window an overlay says so; drop
+  it on the **After** box instead to load it there. Missing the box used to hand
+  the file to the browser, which navigated away from everything loaded.
 - **One file** — drop a `.d3` (or an exported `.json`) on either box. The
   Media report, Tags & notes, Keyframes, Transport info and System info tabs
   describe it. See [Which file a tab describes](#which-file-a-tab-describes).
@@ -260,11 +264,20 @@ list can show, so the tab is three views that drive each other:
   blocks that hold until the next key, an expression as a dotted line. Hover
   anything for its time, timecode and value. **fit** draws the span the layers
   and keys occupy; 2× to 16× zoom about the middle of the view.
-- **CDLs** — every CDL a layer uses, with a swatch, whether it was made in
-  Designer (`d3`) or imported (`.cc`), and how many layers and tracks use it.
-  Click one for its slope, power, offset and saturation and the tracks that use
-  it; the grid dims every other track and the timeline highlights the layers
-  that apply it.
+- **CDLs** — on the timeline, not in a list of their own. Open a graded layer
+  and click its `cdl` row: it twirls down the grade it applies, with a swatch,
+  whether it was made in Designer (`d3`) or imported (`.cc`), its slope, power,
+  offset and saturation, and how many layers and tracks use it. **highlight**
+  lights every layer that applies it and dims the tracks that do not. A
+  show-wide list beside the grid made you find the same name twice; the
+  question is nearly always "what is this layer graded with".
+
+**LUTs are not a layer setting.** Designer applies a `.cube` LUT to an LED
+screen, a display or a camera, never to a layer -- a layer's colour controls are
+its CDL and its OCIO exposure, contrast and gamma, which show up as set values.
+The reference show applies no LUT anywhere: the only LUT files in it are
+Designer's 17 samples, listed in every machine's inventory, so this page has
+nothing to report about them yet.
 
 **Names are as wide as you drag them.** The divider between the side column and
 the timeline widens the grid's track names; the edge of the timeline's `time`

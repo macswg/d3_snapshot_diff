@@ -58,6 +58,31 @@
   .drop.filled { color: var(--fg); border-style: solid; }
   .drop.over { border-color: var(--add-fg); color: var(--add-fg); }
   .drop .stamp { display: block; font-size: 11px; color: var(--dim); margin-top: 2px; }
+  /* An inbox on each box, so a box reads as somewhere a file goes. A mask rather
+     than an <img> or inline markup: load() rewrites the box's contents, and a
+     pseudo-element survives that and takes the box's own colour as it changes. */
+  .drop::before, #dropzone .dzi {
+    content: ''; display: inline-block; width: 16px; height: 16px; margin-right: 8px;
+    vertical-align: -3px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M22 12h-6l-2 3h-4l-2-3H2'/%3E%3Cpath d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3C/svg%3E") no-repeat center / contain;
+    mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M22 12h-6l-2 3h-4l-2-3H2'/%3E%3Cpath d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3C/svg%3E") no-repeat center / contain;
+  }
+  /* The whole page takes a drop. Shown only while files are dragged over the
+     window, and pointer-events:none so the Before and After boxes underneath
+     still light up and still take the drop that lands on them. */
+  #dropzone {
+    position: fixed; inset: 0; z-index: 50; pointer-events: none; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(15, 17, 21, .72); border: 2px dashed var(--add-fg);
+  }
+  #dropzone.on { display: flex; }
+  #dropzone .dzbox {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 24px 32px; border-radius: 10px; background: var(--panel);
+    border: 1px solid var(--edge); color: var(--add-fg); font-size: 15px; text-align: center;
+  }
+  #dropzone .dzi { width: 56px; height: 56px; margin: 0; }
+  #dropzone .of { color: var(--dim); font-size: 12px; }
   input[type=file] { display: none; }
   #pickDir {
     border: 1px solid var(--edge); border-radius: 6px; padding: 9px 13px;
@@ -384,15 +409,19 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px;
   }
   .kgc.con { outline: 1px solid var(--ch-fg); outline-offset: -1px; }
-  .kcdl {
-    display: flex; gap: 8px; align-items: center; padding: 3px 4px;
-    border-radius: 4px; cursor: pointer; font-size: 12.5px;
+  /* A layer's grades, twirled down under its cdl row. Sticky to the left edge
+     of the scroller, so the values stay in view however far along the track
+     the timeline is scrolled -- the box is about the layer, not a moment. */
+  .kcdlrow { display: block; }
+  .kcdlbox {
+    position: sticky; left: 0; max-width: 720px; padding: 4px 8px 8px 24px;
+    border-bottom: 1px solid var(--edge); background: var(--bg); font-size: 12.5px;
   }
-  .kcdl:hover { background: #22262e; }
-  .kcdl.on { background: #2a2e37; box-shadow: inset 2px 0 var(--ch-fg); }
-  .kcdl.dim { opacity: .35; }
-  .kcdl .kcn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .kcdl .grow { margin-left: auto; white-space: nowrap; font-size: 11.5px; }
+  .kcdlhead { display: flex; gap: 8px; align-items: center; padding: 3px 0 2px; }
+  .kcdlhead .kcn { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kcdlhead .grow { margin-left: auto; white-space: nowrap; font-size: 11.5px; }
+  .kcdlbox.on { box-shadow: inset 2px 0 var(--ch-fg); }
+  .kfld .kl[data-cdlopen] { cursor: pointer; }
   .ksw {
     flex: none; display: inline-flex; flex-direction: column; width: 64px; height: 18px;
     border-radius: 3px; overflow: hidden; border: 1px solid var(--edge); vertical-align: middle;
@@ -401,7 +430,7 @@
   .ksw.none { background: repeating-linear-gradient(45deg, #2a2e37 0 4px, #1e2128 4px 8px); }
   .kcs { flex: none; font-size: 10.5px; color: var(--dim); border: 1px solid var(--edge); border-radius: 3px; padding: 0 4px; }
   .kcv {
-    margin: 2px 0 10px 76px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    margin: 2px 0 6px 72px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 11.5px; color: var(--dim);
   }
   .kcv b { color: var(--fg); font-weight: 400; }
@@ -563,6 +592,10 @@
   </div>
 </header>
 
+<div id="dropzone" aria-hidden="true"><div class="dzbox"><span class="dzi"></span>
+  <div>Drop anywhere to load as <b>Before</b></div>
+  <div class="of">or onto the After box to load it there</div></div></div>
+
 <nav id="tabs">
   <button type="button" class="tab on" data-tab="changes">Changes</button>
   <button type="button" class="tab" data-tab="media">Media report</button>
@@ -598,7 +631,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.10.0</span>
+  <span id="ver">v2.11.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -625,10 +658,44 @@ function wire(dropId, inputId, slot) {
   drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
   drop.addEventListener('drop', function (e) {
-    e.preventDefault(); drop.classList.remove('over');
+    // Stopped here so the page-wide drop below does not load the same file into
+    // Before as well.
+    e.preventDefault(); e.stopPropagation(); drop.classList.remove('over');
+    hideDropzone();
     if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0], slot, drop);
   });
 }
+
+/* A file dropped anywhere else on the page loads as Before -- the box is a small
+ * target on a long page, and missing it used to hand the file to the browser,
+ * which navigated away from everything loaded. dragenter and dragleave fire for
+ * every child the pointer crosses, so the overlay counts them rather than
+ * hiding on the first leave and flickering. */
+var dragDepth = 0;
+function hasFiles(e) {
+  var types = e.dataTransfer && e.dataTransfer.types;
+  return !!types && Array.prototype.indexOf.call(types, 'Files') >= 0;
+}
+function hideDropzone() {
+  dragDepth = 0;
+  document.getElementById('dropzone').classList.remove('on');
+}
+window.addEventListener('dragenter', function (e) {
+  if (!hasFiles(e)) return;
+  dragDepth++;
+  document.getElementById('dropzone').classList.add('on');
+});
+window.addEventListener('dragleave', function (e) {
+  if (!hasFiles(e)) return;
+  if (--dragDepth <= 0) hideDropzone();
+});
+window.addEventListener('dragover', function (e) { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('drop', function (e) {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  hideDropzone();
+  if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0], 'a', document.getElementById('dropA'));
+});
 
 /* Capture time for ordering, filename first.
  *
@@ -1456,9 +1523,9 @@ var lastKeys = null, keySource = null;
 // and by "track|layer|field" index, so a repaint per keystroke keeps them.
 var kf = { track: null, col: null, cdl: null, zoom: 1, open: {}, shut: {}, allOpen: false,
            lastQuery: '', view: 'timeline', lopen: {}, popen: {}, listFocus: null,
-           statics: false };
+           statics: false, cdlOpen: {} };
 var KF_LABEL = 260;              // px: the timeline's sticky name column, by default
-var KF_SIDE = 420;               // px: the grid and CDL column, see .kf, by default
+var KF_SIDE = 420;               // px: the track grid's column, see .kf, by default
 // Both columns can be dragged wider, since a track or layer name runs to
 // whatever Designer was given and any fixed width cuts some show short. The
 // floors keep the grid's parameter columns and a layer's caret on screen.
@@ -1627,35 +1694,36 @@ function kfGrid(tracks, hitsOf) {
   return '<table class="kgrid">' + head + body + '</table>';
 }
 
-// Every CDL stays listed; the search dims the ones it misses, as it does the
-// tracks beside them.
-function kfCdlHit(c) {
-  return !query || hitsText((c.name + ' ' + c.ref + ' ' + c.source).toLowerCase());
-}
-
-function kfCdlList() {
-  if (!lastKeys.cdls.length) return '<p class="note">No layer in this show applies a CDL.</p>';
-  return lastKeys.cdls.map(function (c) {
+/* The grades one layer applies, for the twirl-down under its cdl row. The CDLs
+ * live here rather than in a show-wide list beside the grid: the question is
+ * nearly always "what is this layer graded with", asked while looking at the
+ * layer, and a separate list made you find the same name twice. The show-wide
+ * view is still one click away -- `highlight` lights every layer that applies
+ * the grade and dims the tracks that do not. */
+function kfCdlDetail(l) {
+  return l.cdls.map(function (ref) {
+    var c = lastKeys.cdlByRef[ref];
+    if (!c) return '<div class="kcdlhead"><span class="kcn">' + markup(ref) + '</span></div>';
     var on = c.ref === kf.cdl;
-    var html = '<div class="kcdl' + (on ? ' on' : '') + (kfCdlHit(c) ? '' : ' dim') + '" data-cdl="' + esc(c.ref) + '" title="' +
-      esc(kfCdlTitle(c)) + '">' + kfSwatch(c.swatch) +
+    return '<div class="kcdlhead" title="' + esc(kfCdlTitle(c)) + '">' + kfSwatch(c.swatch) +
       '<span class="kcn">' + markup(c.name) + '</span>' +
       '<span class="kcs" title="' + (c.source === 'ccFile' ? 'imported ASC .cc file' : 'made in Designer') +
       '">' + (c.source === 'ccFile' ? '.cc' : 'd3') + '</span>' +
       (c.identity ? '<span class="kcs">identity</span>' : '') +
+      '<button type="button" class="kbtn' + (on ? ' on' : '') + '" data-cdl="' + esc(c.ref) + '" title="' +
+      (on ? 'Stop highlighting this CDL' : 'Light up every layer that applies this CDL') + '">' +
+      (on ? 'highlighted' : 'highlight') + '</button>' +
       '<span class="grow of">' + plural(c.layers, 'layer') + ' · ' +
-      plural(c.tracks.length, 'track') + '</span></div>';
-    if (on) {
-      html += '<div class="kcv">' + (c.error ? esc(c.error) :
-        'slope <b>' + esc(kfTriplet(c.slope)) + '</b><br>power <b>' + esc(kfTriplet(c.power)) +
-        '</b><br>offset <b>' + esc(kfTriplet(c.offset)) + '</b><br>saturation <b>' +
-        esc(fmt(c.saturation)) + '</b>') + '<div class="kct">' + c.tracks.map(function (id) {
-          var t = lastKeys.tracks.filter(function (x) { return x.id === id; })[0];
-          return '<button type="button" class="kbtn" data-track="' + esc(id) + '">' +
-                 esc(t ? t.name : id) + '</button>';
-        }).join('') + '</div></div>';
-    }
-    return html;
+      plural(c.tracks.length, 'track') + '</span></div>' +
+      '<div class="kcv">' + (c.error ? esc(c.error) :
+        'slope <b>' + esc(kfTriplet(c.slope)) + '</b> &nbsp; power <b>' + esc(kfTriplet(c.power)) +
+        '</b> &nbsp; offset <b>' + esc(kfTriplet(c.offset)) + '</b> &nbsp; saturation <b>' +
+        esc(fmt(c.saturation)) + '</b>') +
+      (c.tracks.length > 1 ? '<div class="kct">' + c.tracks.map(function (id) {
+        var t = lastKeys.tracks.filter(function (x) { return x.id === id; })[0];
+        return '<button type="button" class="kbtn' + (id === kf.track ? ' on' : '') + '" data-track="' +
+               esc(id) + '">' + esc(t ? t.name : id) + '</button>';
+      }).join('') + '</div>' : '') + '</div>';
   }).join('');
 }
 
@@ -1785,9 +1853,14 @@ function kfTimeline(t, width) {
 
     if (open) r.fields.forEach(function (f, n) {
       var fcls = 'kr kfld' + (r.hot === true ? ' hot' : '') + (dimmed || !r.hit[n] ? ' dim' : '');
-      html += '<div class="' + fcls + '">' + kfFieldLabel(f) +
+      var cdl = f.isCdl && l.cdls.length ? { key: r.key, open: !!kf.cdlOpen[r.key] } : null;
+      html += '<div class="' + fcls + '">' + kfFieldLabel(f, cdl) +
         (f.numeric ? svg(34, kfCurve(f, l, t, x, diamond)) : svg(20, kfBlocks(f, l, t, x, pps, diamond))) +
         '</div>';
+      if (cdl && cdl.open) {
+        html += '<div class="kr kcdlrow"><div class="kcdlbox' +
+          (kf.cdl && l.cdls.indexOf(kf.cdl) >= 0 ? ' on' : '') + '">' + kfCdlDetail(l) + '</div></div>';
+      }
     });
     html += '</div>';
   });
@@ -1801,13 +1874,18 @@ function kfTimeline(t, width) {
          html + '</div></div>';
 }
 
-function kfFieldLabel(f) {
+// `cdl` is the twirl-down's key and state when this is a cdl row on a layer
+// that applies a grade, and absent otherwise.
+function kfFieldLabel(f, cdl) {
   var range = f.expression ? 'expression'
     : f.numeric && f.min !== null ? fmt(f.min) + (f.max !== f.min ? ' – ' + fmt(f.max) : '') : '';
-  return '<div class="kl" title="' + esc(f.display + (f.label && f.label !== f.name ? '\n' + f.name : '') +
+  return '<div class="kl"' + (cdl ? ' data-cdlopen="' + esc(cdl.key) + '"' : '') +
+    ' title="' + esc(f.display + (f.label && f.label !== f.name ? '\n' + f.name : '') +
     '\n' + plain(f.valueType) + ' · ' + plural(f.keys.length, 'key') +
     (f.expression ? '\nexpression: ' + f.expression : '') + '\nDefault ' + kfValue(f['default'], f.options) +
-    '\nInterpolation names are inferred, not confirmed in Designer.') + '">' +
+    '\nInterpolation names are inferred, not confirmed in Designer.' +
+    (cdl ? '\nClick for the grade' + (f.keys.length > 1 ? 's' : '') + ' it applies.' : '')) + '">' +
+    (cdl ? '<span class="kcar">' + (cdl.open ? '▾' : '▸') + '</span>' : '') +
     '<span class="kln">' + markup(f.display) + '</span><span class="grow of">' + esc(range) + '</span></div>';
 }
 
@@ -2361,9 +2439,6 @@ function paintKeys() {
     (query ? ' match' : '') + '</span></div>' + kfGrid(shown, hitsOf) +
     '<p class="note">Keys per track and kind of parameter. Click a track to open its timeline, ' +
     'a cell or a heading to show only that kind.</p></section>' +
-    '<section class="tp"><div class="tphead"><span class="tpname">CDLs</span>' +
-    '<span class="grow of">' + plural(lastKeys.cdls.length, 'CDL') + ' on ' +
-    plural(lastKeys.totals.cdlLayers, 'layer') + '</span></div>' + kfCdlList() + '</section>' +
     '</aside><div class="kfsplit" data-split="side" ' +
     'title="Drag to widen the track names; double-click to reset"></div><section class="kfmain">' +
     (listing ? kfList(listing) : kfTrackPanel(track, kfWidth())) + '</section></div>';
@@ -2385,7 +2460,7 @@ function paintKeys() {
 
 function keysClick(e) {
   if (!e.target.closest) return;
-  var el = e.target.closest('[data-track],[data-col],[data-colh],[data-cdl],' +
+  var el = e.target.closest('[data-track],[data-col],[data-colh],[data-cdl],[data-cdlopen],' +
     '[data-layer],[data-zoom],[data-all],[data-clear],[data-go],[data-view],[data-lall],[data-statics]');
   if (!el) {
     // A list fold toggles itself; it is only remembered here, as the opposite
@@ -2435,6 +2510,8 @@ function keysClick(e) {
     kf.col = kf.col === +v ? null : +v;
   } else if ((v = el.getAttribute('data-track')) !== null) {
     kf.track = v;
+  } else if ((v = el.getAttribute('data-cdlopen')) !== null) {
+    if (kf.cdlOpen[v]) delete kf.cdlOpen[v]; else kf.cdlOpen[v] = true;
   } else if ((v = el.getAttribute('data-cdl')) !== null) {
     kf.cdl = kf.cdl === v ? null : v;
     // Picking a CDL the open track does not use moves to one that does:
