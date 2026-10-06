@@ -150,6 +150,14 @@ function withoutAutomatic(snap) {
   return copy;
 }
 
+/* The notes a census case is about. A pair extracted from .d3 archives also
+ * carries a note for each switch scope it could not read -- true, but about a
+ * different question -- and counting every note made these cases fail on any
+ * .d3 corpus while the census handling itself was fine. */
+function censusNotes(d) {
+  return (d.notes || []).filter(function (n) { return !/option switches/.test(n); });
+}
+
 /* A capture whose first transport censuses the showfile the pre-v5 way, by
  * having an `automatic` setlist loaded. Built explicitly rather than hoped for:
  * whether a corpus capture has one loaded is exactly the accident v5 removed. */
@@ -325,7 +333,7 @@ check('tracks dropped from a setlist are not reported as deletions',
       trim.counts.removed === 0 && trim.counts.added === 0,
       JSON.stringify(trim.counts) + ' :: ' + findings(trim.nodes).slice(0, 4).join(' | '));
 check('the diff says out loud that it withheld them',
-      (trim.notes || []).length === 1 && /3 tracks/.test(trim.notes[0]),
+      censusNotes(trim).length === 1 && /3 tracks/.test(censusNotes(trim)[0]),
       JSON.stringify(trim.notes));
 check('they are reported as running-order removals on the transport instead',
       (nodeAt(trim.nodes, 'transport ' + census.transports[0].name).order || {}).counts.removed === 3,
@@ -361,8 +369,8 @@ var cen = diff.diffSnapshots(v5, v5cut);
 check('a track dropped from the census is a deletion, with no automatic transport in sight',
       findings(cen.nodes).indexOf('removed track ' + allIds[0]) !== -1,
       JSON.stringify(cen.counts) + ' :: ' + findings(cen.nodes).slice(0, 3).join(' | '));
-check('and the diff withholds nothing, so it says nothing',
-      (cen.notes || []).length === 0, JSON.stringify(cen.notes));
+check('and the diff withholds nothing, so it says nothing about the census',
+      censusNotes(cen).length === 0, JSON.stringify(cen.notes));
 
 // The mirror: still on the census, just off every setlist. Not a deletion.
 var v5drop = withShowfile(A, allIds);
@@ -383,10 +391,10 @@ v5err.transports.forEach(function (tr) {
 });
 var errDiff = diff.diffSnapshots(v5, v5err);
 check('a null census is declined, not read as an empty showfile',
-      errDiff.counts.removed === 0 && (errDiff.notes || []).length === 1,
+      errDiff.counts.removed === 0 && censusNotes(errDiff).length === 1,
       JSON.stringify(errDiff.counts) + ' :: ' + JSON.stringify(errDiff.notes));
 check('the note quotes why the census was unreadable',
-      /resource not found/.test((errDiff.notes || [])[0] || ''),
+      /resource not found/.test(censusNotes(errDiff)[0] || ''),
       JSON.stringify(errDiff.notes));
 
 // An empty show is a real answer, and the opposite one. Counted over track
@@ -1263,15 +1271,33 @@ function withOptions(snap, scope, mutate) {
 }
 var snapshotFields = function (nodes) { return changedFields(nodes, 'snapshot') || []; };
 
-check('a capture that read its switches reports them, and the corpus really has some',
-      A.system.options.project.values &&
-      Object.keys(A.system.options.project.values).length > 100,
-      Object.keys((A.system.options.project || {}).values || {}).length + ' switches');
+/* A capture extracted from a .d3 has no switches to read -- options.bin is not
+ * packed into the archive and machine.bin never was -- so a corpus of those is
+ * legitimate and these cases have nothing to mutate. Taking the first capture
+ * that did read them keeps the cases live in a mixed folder; a folder with none
+ * says so, rather than crashing on the null or passing on nothing. */
+function hasSwitches(snap, scope) {
+  var o = snap && snap.system && snap.system.options && snap.system.options[scope];
+  return !!(o && o.values);
+}
+var S = null;
+for (var si = 0; si < files.length && !S; si++) {
+  var cand = JSON.parse(fs.readFileSync(path.join(LOGS, files[si]), 'utf8'));
+  if (hasSwitches(cand, 'project')) S = cand;
+}
 
-var flipped = withOptions(A, 'project', function (s) {
+if (!S) {
+  console.log('  --   no capture in the corpus read its option switches ' +
+              '(a .d3 extraction cannot), so the switch cases did not run');
+} else {
+check('a capture that read its switches reports them, and the corpus really has some',
+      Object.keys(S.system.options.project.values).length > 100,
+      Object.keys(S.system.options.project.values).length + ' switches');
+
+var flipped = withOptions(S, 'project', function (s) {
   s.values.useLegacySLCRegionTag = s.values.useLegacySLCRegionTag === '1' ? '0' : '1';
 });
-var flipDiff = diff.diffSnapshots(A, flipped);
+var flipDiff = diff.diffSnapshots(S, flipped);
 check('a flipped switch is one line, not a re-report of every switch beside it',
       snapshotFields(flipDiff.nodes).join(',') === 'useLegacySLCRegionTag',
       JSON.stringify(snapshotFields(flipDiff.nodes)));
@@ -1282,10 +1308,10 @@ check('and it earns no section of its own',
 // The whole reason values is nullable. Reading null as {} would diff 125
 // switches against nothing and report every one of them as removed -- the
 // showfile-census mistake, wearing a different hat.
-var unread = withOptions(A, 'project', function (s) {
+var unread = withOptions(S, 'project', function (s) {
   s.values = null; s.error = 'options.bin unreadable';
 });
-var unreadDiff = diff.diffSnapshots(A, unread);
+var unreadDiff = diff.diffSnapshots(S, unread);
 check('an unread switch file is declined, not read as no switches set',
       snapshotFields(unreadDiff.nodes).length === 0,
       JSON.stringify(snapshotFields(unreadDiff.nodes)).slice(0, 200));
@@ -1300,8 +1326,8 @@ check('the note quotes why the file was unreadable',
 // A switch the file never mentions is at its default. Filling it in with "0"
 // would invent a value the capture never claimed, and would hide the day a
 // Designer release changes what that default is.
-var added = withOptions(A, 'project', function (s) { s.values.aBrandNewSwitch = '1'; });
-var addedChange = (nodeAt(diff.diffSnapshots(A, added).nodes, 'snapshot').changes || [])[0];
+var added = withOptions(S, 'project', function (s) { s.values.aBrandNewSwitch = '1'; });
+var addedChange = (nodeAt(diff.diffSnapshots(S, added).nodes, 'snapshot').changes || [])[0];
 check('a switch that appears reads as absent-before, not as zero-before',
       addedChange && addedChange.field === 'aBrandNewSwitch' &&
       addedChange.from === undefined && addedChange.to === '1',
@@ -1309,11 +1335,17 @@ check('a switch that appears reads as absent-before, not as zero-before',
 
 // Machine settings override project settings, so they cannot share a namespace:
 // the same switch name can legitimately hold different values at each scope.
-var machined = withOptions(A, 'machine', function (s) { s.values.telnetConsolePort = '10002'; });
+if (!hasSwitches(S, 'machine')) {
+  console.log('  --   that capture did not read its machine switches, ' +
+              'so the machine-scope case did not run');
+} else {
+var machined = withOptions(S, 'machine', function (s) { s.values.telnetConsolePort = '10002'; });
 check('a machine switch is labelled as one, so it cannot be mistaken for the project',
-      snapshotFields(diff.diffSnapshots(A, machined).nodes)
+      snapshotFields(diff.diffSnapshots(S, machined).nodes)
         .join(',') === 'telnetConsolePort (machine)',
-      JSON.stringify(snapshotFields(diff.diffSnapshots(A, machined).nodes)));
+      JSON.stringify(snapshotFields(diff.diffSnapshots(S, machined).nodes)));
+}
+}
 
 var upgraded = JSON.parse(JSON.stringify(A));
 upgraded.system.build.version = 'r34.0.0, rev 260000';
@@ -1333,23 +1365,27 @@ check('the build surfaces the version and drops null fields',
       sysrep.build.fields.every(function (f) { return f.v !== null && f.v !== ''; }),
       JSON.stringify(sysrep.build && sysrep.build.version));
 
+if (!S) {
+  console.log('  --   no capture read its option switches, so the switch listing cases did not run');
+} else {
+var sysS = diff.systemReport(S);
 // The compaction the tab depends on: set is the handful someone changed, all is
 // everything the file holds. A default-valued switch is in `all`, never `set`.
 check('set is the non-default switches, all is every recorded one',
-      sysrep.project.set.length > 0 &&
-      sysrep.project.all.length > sysrep.project.set.length &&
-      sysrep.project.set.every(function (s) { return !s.isDefault; }),
-      sysrep.project.set.length + ' set of ' + sysrep.project.all.length);
+      sysS.project.set.length > 0 &&
+      sysS.project.all.length > sysS.project.set.length &&
+      sysS.project.set.every(function (s) { return !s.isDefault; }),
+      sysS.project.set.length + ' set of ' + sysS.project.all.length);
 
 check('a switch at 0 is marked default, so the tab can dim it rather than drop it',
       (function () {
-        var zero = sysrep.project.all.filter(function (s) { return s.value === '0'; });
+        var zero = sysS.project.all.filter(function (s) { return s.value === '0'; });
         return zero.length > 0 && zero.every(function (s) { return s.isDefault; });
       })());
 
 // The null-vs-empty rule, at the report layer this time: unread must not read
 // as "no switches", or the tab would quietly claim a default state it never saw.
-var unreadSys = diff.systemReport(withOptions(A, 'project', function (s) {
+var unreadSys = diff.systemReport(withOptions(S, 'project', function (s) {
   s.values = null; s.error = 'options.bin unreadable';
 }));
 check('an unread switch file reports unread, not an empty set',
@@ -1358,7 +1394,8 @@ check('an unread switch file reports unread, not an empty set',
       JSON.stringify({ unread: unreadSys.project.unread, err: unreadSys.project.error }));
 
 check('the source path rides along so the tab can name the file it read',
-      /options\.bin$/.test(sysrep.project.source || ''), sysrep.project.source);
+      /options\.bin$/.test(sysS.project.source || ''), sysS.project.source);
+}
 
 check('a capture with no system block does not throw and reports no build',
       (function () {
@@ -1436,13 +1473,65 @@ if (!archivePath) {
   check('switches the archive cannot hold are declined with a note, not reported removed',
         againstCapture.notes.filter(function (n) { return /option switches/.test(n); }).length === 2 &&
         snapshotFields(againstCapture.nodes).every(function (f) {
-          return !Object.prototype.hasOwnProperty.call(A.system.options.project.values,
+          return !Object.prototype.hasOwnProperty.call(A.system.options.project.values || {},
                                                        f.replace(/ \(machine\)$/, ''));
         }),
         JSON.stringify(snapshotFields(againstCapture.nodes)));
   check('the reports build from an archive',
         diff.mediaReport(fromArchive).totals.media > 0 &&
         diff.transportReport(fromArchive).totals.transports > 0);
+
+  // Disabled and muted are .d3-only flags. Between two archives a toggle is one
+  // line; against a capture without them it must be zero lines and a note, or
+  // every layer in the show reads as changed.
+  function flagLines(d) {
+    var out = [];
+    (function walk(list) {
+      list.forEach(function (n) {
+        (n.changes || []).forEach(function (c) {
+          if (c.field === 'disabled' || c.field === 'muted') out.push(c.field + ' ' + c.from + '>' + c.to);
+        });
+        if (n.children) walk(n.children);
+      });
+    })(d.nodes);
+    return out;
+  }
+  function firstLayer(snap) {
+    for (var i = 0; i < snap.tracks.length; i++) {
+      if ((snap.tracks[i].layers || []).length) return snap.tracks[i].layers[0];
+    }
+    return null;
+  }
+  var toggled = JSON.parse(JSON.stringify(fromArchive));
+  firstLayer(toggled).enabled = !firstLayer(fromArchive).enabled;
+  check('a layer disabled between two archives is one disabled line',
+        JSON.stringify(flagLines(diff.diffSnapshots(fromArchive, toggled))) ===
+        JSON.stringify(['disabled ' + !firstLayer(fromArchive).enabled + '>' + firstLayer(fromArchive).enabled]),
+        JSON.stringify(flagLines(diff.diffSnapshots(fromArchive, toggled))));
+  if (typeof firstLayer(fromArchive).muted === 'boolean') {
+    var muteFlip = JSON.parse(JSON.stringify(fromArchive));
+    firstLayer(muteFlip).muted = !firstLayer(fromArchive).muted;
+    check('a layer muted between two archives is one muted line',
+          flagLines(diff.diffSnapshots(fromArchive, muteFlip)).join() ===
+          'muted ' + firstLayer(fromArchive).muted + '>' + !firstLayer(fromArchive).muted,
+          JSON.stringify(flagLines(diff.diffSnapshots(fromArchive, muteFlip))));
+  } else {
+    console.log('  --   the archive\'s mute state was unreadable, so the muted case did not run');
+  }
+  var unflagged = JSON.parse(JSON.stringify(toggled));
+  unflagged.tracks.forEach(function (t) {
+    (t.layers || []).forEach(function (l) { delete l.enabled; delete l.muted; });
+  });
+  var mixed = diff.diffSnapshots(unflagged, fromArchive);
+  check('against a capture without the flags, no layer reads as disabled or muted',
+        flagLines(mixed).length === 0, flagLines(mixed).slice(0, 3).join(', '));
+  check('and the diff says which side could not answer',
+        mixed.notes.filter(function (n) { return /The Before capture did not record which layers/.test(n); })
+          .length === (typeof firstLayer(fromArchive).muted === 'boolean' ? 2 : 1),
+        JSON.stringify(mixed.notes));
+  check('two captures without the flags say nothing about them',
+        diff.diffSnapshots(unflagged, JSON.parse(JSON.stringify(unflagged))).notes
+          .filter(function (n) { return /did not record which layers/.test(n); }).length === 0);
 }
 
 console.log('\nkeyframes');
@@ -1516,8 +1605,15 @@ if (archivePath) {
       if (mine !== s.tcStart) tcOff.push(t.id + ' ' + l.name + ': ' + mine + ' vs ' + s.tcStart);
     });
   });
-  check('a layer\'s start reads the same timecode the extractor gave it',
-        tcSeen > 0 && tcOff.length === 0, tcSeen + ' compared; ' + tcOff.slice(0, 3).join('; '));
+  // An archive the reader finds no frame rate in gives no layer a timecode, so
+  // there is nothing to hold the rule to -- which has to be said, not passed.
+  if (!tcSeen) {
+    console.log('  --   no layer in the archive has a timecode (no frame rate read), ' +
+                'so the timecode agreement case did not run');
+  } else {
+    check('a layer\'s start reads the same timecode the extractor gave it',
+          tcOff.length === 0, tcSeen + ' compared; ' + tcOff.slice(0, 3).join('; '));
+  }
 
   check('the report builds from a keyframes file alone, without cue markers',
         (function () {
@@ -1591,7 +1687,8 @@ check('timecode counts on from the last TC tag on the real frame rate',
         var snap = { project: 'p', capturedAt: 'x', tracks: [{ id: 't', fps: 29.97, lengthInSec: 60,
           cues: [{ t: 5, isSection: false, note: null, timecode: null,
                    tags: [{ type: 'tc', text: '01:00:00:00' }] }] }] };
-        var t = diff.keyframeReport(kfDoc(3, [], {}), snap).tracks[0];
+        // allTracks: a layer with no fields animates nothing, so `tracks` leaves it out.
+        var t = diff.keyframeReport(kfDoc(3, [], {}), snap).allTracks[0];
         return diff.timecodeAt(t, 4) === null && diff.timecodeAt(t, 5) === '01:00:03.18' &&
                diff.timecodeAt(t, 15) === '01:00:13.18';
       })());
@@ -1622,15 +1719,19 @@ check('it names both captures and says how to read itself',
 // JSON.stringify drops undefined on its own, so this pins that behaviour: a
 // later tidy-up that filled absences with null would silently turn "never set"
 // into "set to nothing" for every reader of the file.
-var newSwitch = withOptions(A, 'project', function (s) { s.values.zzExportProbe = '1'; });
+if (!S) {
+  console.log('  --   no capture read its option switches, so the export switch case did not run');
+} else {
+var newSwitch = withOptions(S, 'project', function (s) { s.values.zzExportProbe = '1'; });
 var probe = JSON.parse(JSON.stringify(
-  diff.exportDiff(diff.diffSnapshots(A, newSwitch), A, newSwitch, {}, 'fixed')));
+  diff.exportDiff(diff.diffSnapshots(S, newSwitch), S, newSwitch, {}, 'fixed')));
 check('a switch the Before file omits exports with no `from`, not a null one',
       (function () {
         var snap = probe.changes.filter(function (n) { return n.entity === 'snapshot'; })[0];
         var c = snap && snap.changes.filter(function (x) { return x.field === 'zzExportProbe'; })[0];
         return c && !('from' in c) && c.to === '1';
       })(), JSON.stringify(probe.changes[0]));
+}
 
 check('the export is deterministic, so two runs of one pair compare equal',
       JSON.stringify(diff.exportDiff(real, A, B, {}, 'fixed')) ===

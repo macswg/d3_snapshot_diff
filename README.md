@@ -201,6 +201,13 @@ project was saved". The plugin does not record either, so on a plugin capture
 the report says once, above the tracks, that it cannot tell, rather than
 printing a show with nothing disabled.
 
+The Changes tab reports the same two flags on a changed layer, as `disabled`
+and `muted` lines, and only when both files are `.d3` archives. Diffing a
+plugin capture against an archive would otherwise read every layer as newly
+enabled; instead the pair skips the comparison and a note says which side could
+not answer. Disabling a group reports each layer inside it, because each one
+stopped playing.
+
 **Setlists are not part of this.** An earlier version grouped by transport, and
 it was wrong in a way worth recording: a track on three setlists was listed
 three times and its media counted three times, so a show holding 1,734 media

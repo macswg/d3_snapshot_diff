@@ -150,9 +150,12 @@ function optionChanges(a, b, scope) {
   var sa = (a.system && a.system.options && a.system.options[scope]) || {},
       sb = (b.system && b.system.options && b.system.options[scope]) || {};
   if (!sa.values || !sb.values) {
-    var which = !sa.values ? (!sb.values ? 'Neither' : 'The Before') : 'The After';
+    // "Neither capture could not read" was the old wording: a double negative
+    // that says the opposite of what it means on every .d3 pair.
+    var which = !sa.values ? (!sb.values ? 'Neither capture could' : 'The Before capture could not')
+                           : 'The After capture could not';
     return { changes: [], note:
-      which + ' capture could not read the ' + scope + ' option switches' +
+      which + ' read the ' + scope + ' option switches' +
       ((sa.error || sb.error) ? ' (' + (sa.error || sb.error) + ')' : '') +
       ', so a switch that was flipped between these two captures cannot be ' +
       'reported. An unread file is not an empty one.' };
@@ -366,7 +369,27 @@ function diffMedia(a, b) {
   return nodes;
 }
 
-function diffLayers(trackA, trackB) {
+/* Which of a layer's playback flags a capture recorded: {enabled, muted}.
+ *
+ * Only a .d3 records them -- the plugin does not write either -- and the reader
+ * writes each one for every layer or for none (`muted` is null throughout when
+ * the director state was unreadable). So the question is asked of the capture,
+ * not of each layer, and a flag is compared only when both captures recorded
+ * it. Comparing a plugin capture's absent flag against a .d3's `true` would
+ * report every layer in the show as changed -- the census mistake again.
+ */
+function layerFlags(snap) {
+  var known = { enabled: false, muted: false };
+  (snap.tracks || []).forEach(function (t) {
+    (t.layers || []).forEach(function (l) {
+      if (typeof l.enabled === 'boolean') known.enabled = true;
+      if (typeof l.muted === 'boolean') known.muted = true;
+    });
+  });
+  return known;
+}
+
+function diffLayers(trackA, trackB, flags) {
   var useIds = layersHaveIds(trackA.layers) && layersHaveIds(trackB.layers);
   var m = matchBy(trackA.layers, trackB.layers, useIds ? layerIdKey : layerKey);
   var labelA = layerLabeller(trackA.layers), labelB = layerLabeller(trackB.layers);
@@ -388,6 +411,14 @@ function diffLayers(trackA, trackB) {
     var ga = (p.a.groupPath || []).join(' / '), gb = (p.b.groupPath || []).join(' / ');
     if (ga !== gb) {
       ch.push({ field: 'group', from: showWhitespace(ga), to: showWhitespace(gb) });
+    }
+    // Reported as `disabled`, not `enabled`, so the line reads the way the
+    // media report and Designer's own toggle say it.
+    if (flags && flags.enabled && p.a.enabled !== p.b.enabled) {
+      ch.push({ field: 'disabled', from: !p.a.enabled, to: !p.b.enabled });
+    }
+    if (flags && flags.muted && p.a.muted !== p.b.muted) {
+      ch.push({ field: 'muted', from: p.a.muted, to: p.b.muted });
     }
     var kids = diffMedia(p.a, p.b);
     if (ch.length || kids.length) {
@@ -458,7 +489,7 @@ function showfileTracks(snap) {
  * reported under the transport as running-order lines instead, so that an
  * added or removed track in the tree always means the showfile itself.
  */
-function diffTracks(snapA, snapB) {
+function diffTracks(snapA, snapB, flags) {
   var showA = showfileTracks(snapA), showB = showfileTracks(snapB);
   var m = matchBy(snapA.tracks, snapB.tracks, function (t) { return t.id; });
   var nodes = [], membership = { added: 0, removed: 0 };
@@ -483,7 +514,7 @@ function diffTracks(snapA, snapB) {
   });
   m.common.forEach(function (p) {
     var ch = fieldChanges(p.a, p.b, TRACK_FIELDS);
-    var kids = diffCues(p.a, p.b).concat(diffLayers(p.a, p.b));
+    var kids = diffCues(p.a, p.b).concat(diffLayers(p.a, p.b, flags));
     if (ch.length || kids.length) {
       nodes.push({ kind: 'changed', entity: 'track', label: 'track ' + showWhitespace(p.b.id),
                    detail: p.b.trashed ? 'in the trash' : null,
@@ -588,7 +619,9 @@ function diffSnapshots(snapA, snapB) {
 
   if (top.length) nodes.push({ kind: 'changed', entity: 'snapshot', label: 'snapshot', changes: top });
 
-  var tracks = diffTracks(snapA, snapB);
+  var flagsA = layerFlags(snapA), flagsB = layerFlags(snapB);
+  var flags = { enabled: flagsA.enabled && flagsB.enabled, muted: flagsA.muted && flagsB.muted };
+  var tracks = diffTracks(snapA, snapB, flags);
   nodes = nodes.concat(diffTransports(snapA, snapB));
   nodes = nodes.concat(tracks.nodes);
 
@@ -606,6 +639,14 @@ function diffSnapshots(snapA, snapB) {
            'that lists every track in the show, so this pair cannot tell a ' +
            'showfile edit from a setlist edit.';
   }
+  // Only when one side recorded the flags. Two plugin captures never do, and a
+  // note on every such pair would be noise about a design decision, not news.
+  [['enabled', 'disabled'], ['muted', 'muted']].forEach(function (f) {
+    if (flagsA[f[0]] === flagsB[f[0]]) return;
+    notes.push('The ' + (flagsA[f[0]] ? 'After' : 'Before') + ' capture did not record which ' +
+               'layers are ' + f[1] + ' (only a .d3 does), so a change to that between ' +
+               'these two captures cannot be reported.');
+  });
   if (tracks.membership.removed) {
     notes.push('Not counted as deletions: ' + plural(tracks.membership.removed, 'track') +
                ' that left the capture by dropping off a setlist.' +
@@ -729,6 +770,7 @@ var EXPORT_ABOUT = [
   'A transport `order` is a line diff of its setlist: entries are {kind: same|moved|added|removed, id: track id, a: 0-based position in before or null, b: 0-based position in after or null}.',
   'Labels mark whitespace a browser would swallow: a trailing space, a doubled space or an embedded newline shows as a visible symbol (␣ space, ⇥ tab, ⏎ newline, or a \\uXXXX codepoint for any other invisible). Field values stay raw, except a layer `group` change, which is marked like a label. Two labels differing only by such a mark are genuinely different entities.',
   'The snapshot node carries environment changes: the Designer build (`d3 build`) and project or machine option switches.',
+  'A layer `disabled` or `muted` change is true/false. Only a capture read from a .d3 records either flag, so they are compared only when both captures recorded them, and `notes` says when one side did not.',
   '`summary` is the same roll-up the page shows: per-entity tallies, the most-changed fields, and top-level nodes ranked by how much sits beneath them.'
 ];
 
