@@ -181,6 +181,22 @@ count, which is usually the question. `expand all` when it isn't.
 The version column is fixed-width and aligned across the whole report, because
 running an eye down it is the point.
 
+The file column starts at 44ch and can be dragged wider or narrower by the edge
+of its `file` heading, which stays at the top of the window as you scroll.
+Double-click the edge to put it back. The width is remembered per browser,
+separately from the Keyframes columns.
+
+**Disabled and muted come from a `.d3` only.** The flags column says
+**disabled** (red) for a layer switched off with Designer's Disable, or sitting
+inside a disabled group, and **muted** (amber) for one muted on the director.
+Both rows are dimmed, a folded track's line counts them, the tally totals them,
+and searching `disabled` or `muted` finds them. They are different news.
+Disabled is saved in the show and is off on every machine. Mute is per machine
+and resets on a track change, so **muted** means "muted on the director when the
+project was saved". The plugin does not record either, so on a plugin capture
+the report says once, above the tracks, that it cannot tell, rather than
+printing a show with nothing disabled.
+
 **Setlists are not part of this.** An earlier version grouped by transport, and
 it was wrong in a way worth recording: a track on three setlists was listed
 three times and its media counted three times, so a show holding 1,734 media
@@ -249,6 +265,48 @@ list can show, so the tab is three views that drive each other:
   Click one for its slope, power, offset and saturation and the tracks that use
   it; the grid dims every other track and the timeline highlights the layers
   that apply it.
+
+**Names are as wide as you drag them.** The divider between the side column and
+the timeline widens the grid's track names; the edge of the timeline's `time`
+header widens the layer names. Double-click either to put it back. The widths are
+remembered per browser, and "fit" re-fits the time axis to what is left when you
+let go.
+
+**List** swaps the timeline for every animated parameter in the show as text:
+one row per parameter, folded under its track, giving the layer, the
+parameter, its key count, the span its keys cover and the timecode at the first,
+its values (a numeric range, or first → last for clips and CDLs) and its
+interpolation. Open a row for one line per key — time, timecode, value,
+interpolation — and its ↗ jumps to that layer on the timeline. Search here
+filters instead of dimming: a list is read down, so the rows that miss are only
+distance between the hits. A parameter kept for one of its keys opens to show
+it.
+
+**Set values** adds the parameters that were set rather than animated. Designer
+stores every parameter on every layer as keys, and one key means "set to this
+and left there" — a setting, not a move. Most of those, about 144,000 on the
+reference show, are still at their default and would bury everything, so only
+the ones set to something else are listed: about 9,100, mostly the clip,
+mapping, end-point behaviour and blend mode. Each is one row, `set` where the
+key count goes, the value in full and the default in its tooltip. Searching
+`blendMode` or a mapping name then finds every layer using it. They never touch
+the grid, the timeline or the tally, since a value that never changes moves
+nothing. Set values need keyframes read by format 4 of the extractor; a
+`_keyframes.json` from before that greys the button out, and dropping the `.d3`
+again fixes it. Folded tracks draw their rows when opened, which keeps a
+repaint near 25 ms with all ~10,900 rows in play.
+
+**A choice reads by name.** Designer stores a blend mode, an end-point
+behaviour or a text alignment as a number; the page shows `Screen (8)`,
+`Pause (2)`, `Center (1)`, and searching `screen` or `luma-matte` finds them.
+The names are copied from the option tables in Designer's Python API reference
+(`OPTION_NAMES` in `diff.js`), keyed by layer type, because `mode` is a
+different list on nearly every kind of layer. Nothing is inferred from what a
+show happens to use. That is why `mode` on a video layer (`VariableVideoModule`)
+stays a number: its reference page lists no options, and borrowing another
+class's table would be a guess that looks like an answer. A list of choices
+summarises as first → last rather than as a range, since `Over – Screen` would
+read as everything between.
 
 **The swatch is the direction of a grade, not its exact look.** It is the CDL
 applied (slope, offset, clamp, power, then saturation against Rec.709 luma) to a
@@ -340,7 +398,9 @@ On keyframes it matches track and layer names, parameter names and Notch labels,
 clip and CDL names, and expressions; it dims what misses instead of hiding it,
 because the timeline is read for where things sit against each other. A layer
 kept for one of its parameters opens to show it, and a new search that misses
-the open track moves to the first track it hits.
+the open track moves to the first track it hits. In the List view it also
+matches key values, key times and timecodes as printed, interpolation names and
+the word `expression`, and it hides what misses.
 
 In each, a row kept only to place a match further down is dimmed: it is
 context, not a hit. The count is of actual hits. Escape clears.
@@ -640,16 +700,18 @@ DOM-free:
 ```js
 {
   tracks: [ { id, name, lengthInSec, bpm, trashed, items: [
-    { layer, group, type, renderEnable, tStart, tEnd,
+    { layer, group, type, renderEnable, enabled, muted, tStart, tEnd,
       name, path, version, hasAudio, regionSet } ] } ],
-  totals: { tracks, media }
+  totals: { tracks, media, disabled, muted, stateKnown }
 }
 ```
 
 `items` is one row per media, not per layer, sorted by `tStart` with nulls last.
 It reads `snap.tracks` and never looks at `transports`, so every track appears
 exactly once and `totals.media` is the media in the capture rather than a sum
-over setlists.
+over setlists. `enabled` and `muted` are null on a plugin capture, which does not
+record them; `stateKnown` is false then, and `disabled` and `muted` count 0
+without claiming that nothing is.
 
 `keyframeReport(keys, snap)` builds the keyframes tab from the extractor's
 keyframes document, with the snapshot (or null) for cue markers and timecode. It
@@ -662,13 +724,20 @@ returns null for anything that is not a keyframes document:
               cues, anchors, keyCount, fieldCount, cdlLayers, cells: [ { fields, keys } ],
               layers: [ { id, name, group, type, tStart, tEnd, cdls: [ ref ],
                           fields: [ { name, display, family, numeric, isCdl, expression,
-                                      default, min, max, keys: [ { t, value, interpolation } ] } ] } ] } ],
+                                      default, min, max, keys: [ { t, value, interpolation } ] } ],
+                          statics: [ { name, display, label, family, valueType, value, default } ] } ],
+              setLayers: [ …layers with statics… ] } ],    // animated tracks only
+  allTracks: [ … ],          // tracks plus those holding set values only, file order
   cdls: [ { ref, name, source, slope, power, offset, saturation, error,
             swatch: { grey, hue, mid }, identity, layers, tracks } ],
-  totals: { tracks, layers, fields, keys, cdls, cdlLayers },
+  totals: { tracks, layers, fields, keys, cdls, cdlLayers, statics },
+  staticsKnown,              // false on a format 3 file, which never wrote set values
   notes: [ … ]
 }
 ```
+
+Set values (`static` fields, format 4) live only on `layer.statics`; every other
+number above, and `tracks`, `layers` and `cells`, reads as it would without them.
 
 `timecodeAt(track, t)` gives the timecode at `t` track seconds on a report
 track, or null before its first TC tag.

@@ -759,7 +759,13 @@ function exportDiff(result, snapA, snapB, sources, generatedAt) {
  * programmed", which the diff deliberately never says.
  *
  * Returns {tracks:[{id, name, lengthInSec, bpm, trashed, items:[…]}],
- *          totals:{tracks, media}}.
+ *          totals:{tracks, media, disabled, muted, stateKnown}}.
+ *
+ * `enabled` and `muted` come only from a .d3 -- the plugin does not write them --
+ * so on a plugin capture both are null, `stateKnown` is false, and the counts
+ * are 0 rather than claiming a show with nothing disabled. They are per media
+ * row, the same unit as `media`, so the counts answer "how much of what is
+ * loaded will not play".
  *
  * Deliberately flat. Grouping by transport meant a track on three setlists was
  * listed three times and its media counted three times, so a 1,734-media show
@@ -802,6 +808,7 @@ function mediaReport(snap) {
           group: (l.groupPath || []).map(function (g) { return showWhitespace(g); }),
           type: l.type,
           renderEnable: l.renderEnable,
+          enabled: nul(l.enabled), muted: nul(l.muted),
           tStart: nul(l.tStart), tEnd: nul(l.tEnd),
           name: showWhitespace(md.name), path: showWhitespace(md.path),
           version: md.version,
@@ -815,11 +822,16 @@ function mediaReport(snap) {
   // `tracks` order is kept as the capture wrote it -- the plugin sorts by id, so
   // the report reads alphabetically and a track sits in the same place between
   // captures. There is no running order to preserve once setlists are out of it.
-  var totals = { tracks: 0, media: 0 };
+  var totals = { tracks: 0, media: 0, disabled: 0, muted: 0, stateKnown: false };
   var tracks = (snap.tracks || []).map(function (t) {
     var items = itemsOf(t);
     totals.tracks++;
     totals.media += items.length;
+    items.forEach(function (it) {
+      if (it.enabled !== null || it.muted !== null) totals.stateKnown = true;
+      if (it.enabled === false) totals.disabled++;
+      if (it.muted === true) totals.muted++;
+    });
     // `id` keeps the raw string -- it is the track's identity and the page
     // keys rows on it. Only `name`, which is what a reader looks at, is marked.
     return { id: String(t.id), name: showWhitespace(t.name || String(t.id)),
@@ -1031,9 +1043,24 @@ function systemReport(snap) {
  * (`"format": "d3_keyframes"`), with the snapshot beside it for what the
  * keyframes file does not carry: cue markers, timecode and track length.
  *
- * Returns {columns:[{family, fields, keys}], tracks:[…], cdls:[…],
- *          totals:{tracks, layers, fields, keys, cdls, cdlLayers}, notes:[…]},
+ * Returns {columns:[{family, fields, keys}], tracks:[…], allTracks:[…], cdls:[…],
+ *          totals:{tracks, layers, fields, keys, cdls, cdlLayers, statics},
+ *          staticsKnown, notes:[…]},
  * or null when the document is not a keyframes file.
+ *
+ * Set values. From format 4 the extractor also writes `static` fields: one key,
+ * no expression, not a CDL, at a value other than the default -- a parameter
+ * that was set and left, which is a setting rather than animation. They are
+ * split off onto `layer.statics` ({name, display, label, family, valueType,
+ * value, default}) and kept out of everything else: the grid, its columns, the
+ * timeline, the tally and the track span read exactly as they would without
+ * them, since a one-key field moves nothing. `track.layers` keeps only layers
+ * with an animated field and `track.setLayers` only layers with a static one;
+ * one layer object can sit in both. `tracks` is the tracks with animation, as
+ * before, and `allTracks` adds the tracks that hold settings only, in the
+ * file's order, for the list's "set values". `staticsKnown` is false on a
+ * format 3 file, which never wrote them -- the format, not a zero count, since a
+ * format 4 show with nothing set is an answer and a format 3 file is silence.
  *
  * Nothing here compares two captures. The show holds ~5,700 keys on ~2,200
  * parameters, which no single list can show, so the report is shaped for three
@@ -1047,6 +1074,55 @@ function systemReport(snap) {
 var KEYFRAME_COLUMNS = 9;
 var KEYFRAMES_OTHER = 'other';
 var CDL_VALUE_TYPE = 'CDL::RP';
+
+/* Names for parameters that store a choice as a number, so a blend mode reads
+ * `Screen` and not `8`. Copied from the option tables in Designer's Python API
+ * reference (developer.disguise.one/python-api), never inferred from what a show
+ * happens to use: a guessed name is worse than the number, because it looks
+ * like an answer.
+ *
+ * Keyed by layer type, then by parameter name folded to lower case without
+ * spaces or underscores -- the archive says `at end point` where the API says
+ * `at_end_point`. `*` is for parameters on a shared base class (Module's
+ * blendMode, ColourShift's RGB controlled) or documented with one table on every
+ * class that has it (at_end_point). A type's own table wins over `*`, because
+ * `mode` means a different list on nearly every module.
+ *
+ * Deliberately absent: `mode` on VariableVideoModule, the commonest video layer.
+ * Its reference page lists no options, and VideoModule's table is a different
+ * class's -- not its base -- so borrowing it would be the guess this table
+ * exists to avoid. */
+var OPTION_NAMES = {
+  '*': {
+    blendmode: ['Over', 'Alpha', 'Add', 'Multiply', 'Mask', 'Multiply-fade', 'Multiply-alpha',
+                'Premult-Alpha', 'Screen', 'Overlay', 'Hard Light', 'Soft Light', 'Colour Burn',
+                'Darken', 'Lighten', 'Difference', 'Exclusion', 'Colour Dodge', 'Hard Mix',
+                'Over-alpha', 'Luma-Matte', 'Inv-Luma-Matte'],
+    atendpoint: ['Loop', 'Ping-pong', 'Pause'],
+    rgbcontrolled: ['Separate', 'Together']
+  },
+  BitmapModule: { scalemode: ['Fill and crop', 'Fill and stretch', 'Fit inside', 'Pixel-perfect'] },
+  GradientModule: { interpolation: ['Linear', 'SmoothStep'], type: ['Linear', 'Radial'] },
+  NoiseModule: { colour: ['Greyscale', 'Colour'], mode: ['Relative', 'Absolute'] },
+  RenderStreamModule: { mode: ['Locked', 'Free-run', 'Normal', 'Paused'],
+                        customeventtriggermode: ['On keyframe', 'On reset', 'On change'] },
+  SceneAnimationModule: { mode: ['Locked', 'Normal'] },
+  TextModule: { halignment: ['Left', 'Center', 'Right'], valignment: ['Top', 'Center', 'Bottom'] },
+  TimecodeReadoutModule: { display: ['Incoming', 'Timeline', 'MTC Module', 'Section', 'Video',
+                                     'TimeDebug', 'OutputDebug', 'System Time'] },
+  VideoModule: { mode: ['Locked', 'Free-run', 'Normal'] },
+  VideoTriggerModule: { triggermode: ['OnReset', 'OnChange'] }
+};
+
+// The option names for one parameter, or null. Only whole-number value types:
+// a float that happens to land on 2 is a level, not a choice.
+function optionNames(layerType, fieldName, valueType) {
+  if (!/^(uint|int|ubyte)$/.test(valueType || '')) return null;
+  var key = String(fieldName).toLowerCase().replace(/[\s_]/g, '');
+  var own = OPTION_NAMES[layerType];
+  if (own && Object.prototype.hasOwnProperty.call(own, key)) return own[key];
+  return Object.prototype.hasOwnProperty.call(OPTION_NAMES['*'], key) ? OPTION_NAMES['*'][key] : null;
+}
 
 function keyframeFamily(name) {
   // A Notch or RenderStream parameter is named by attribute id, so every exposed
@@ -1185,7 +1261,7 @@ function keyframeReport(doc, snap) {
   }
 
   var familyFields = {}, familyKeys = {};
-  var totals = { tracks: 0, layers: 0, fields: 0, keys: 0, cdls: 0, cdlLayers: 0 };
+  var totals = { tracks: 0, layers: 0, fields: 0, keys: 0, cdls: 0, cdlLayers: 0, statics: 0 };
 
   var tracks = (doc.tracks || []).map(function (t) {
     var st = snapTracks[String(t.id)] || null;
@@ -1214,11 +1290,25 @@ function keyframeReport(doc, snap) {
     var lo = Infinity, hi = -Infinity;
     var fams = {}, keyCount = 0, fieldCount = 0, cdlLayers = 0;
 
-    var layers = (t.layers || []).map(function (l) {
+    var all = (t.layers || []).map(function (l) {
       var refs = [], lkeys = 0;
-      if (typeof l.tStart === 'number') lo = Math.min(lo, l.tStart);
-      if (typeof l.tEnd === 'number') hi = Math.max(hi, l.tEnd);
-      var fields = (l.fields || []).map(function (f) {
+      // A layer holding settings only is in a format 4 file but draws nothing,
+      // so it must not stretch the span the timeline fits to.
+      var animated = (l.fields || []).filter(function (f) { return f.static !== true; });
+      if (animated.length) {
+        if (typeof l.tStart === 'number') lo = Math.min(lo, l.tStart);
+        if (typeof l.tEnd === 'number') hi = Math.max(hi, l.tEnd);
+      }
+      var statics = (l.fields || []).filter(function (f) { return f.static === true; }).map(function (f) {
+        var k = (f.keys || [])[0] || {};
+        return { name: f.name, display: showWhitespace(f.label || f.name), label: f.label || null,
+                 family: keyframeFamily(f.name), valueType: f.valueType || null,
+                 options: optionNames(l.type, f.name, f.valueType),
+                 value: k.value === undefined ? null : k.value,
+                 'default': f['default'] === undefined ? null : f['default'] };
+      });
+      totals.statics += statics.length;
+      var fields = animated.map(function (f) {
         var family = keyframeFamily(f.name);
         var isCdl = f.valueType === CDL_VALUE_TYPE;
         var num = !isCdl && numeric(f);
@@ -1249,6 +1339,7 @@ function keyframeReport(doc, snap) {
           display: showWhitespace(f.label || f.name),
           label: f.label || null, family: family, valueType: f.valueType || null,
           numeric: num, isCdl: isCdl, expression: f.expression || null,
+          options: optionNames(l.type, f.name, f.valueType),
           'default': f['default'] === undefined ? null : f['default'],
           keys: keys, min: min, max: max
         };
@@ -1265,15 +1356,18 @@ function keyframeReport(doc, snap) {
                rawName: l.name, group: (l.groupPath || []).map(showWhitespace),
                type: l.type || null, tStart: typeof l.tStart === 'number' ? l.tStart : null,
                tEnd: typeof l.tEnd === 'number' ? l.tEnd : null,
-               notchBlock: l.notchBlock || null, keyCount: lkeys, cdls: refs, fields: fields };
+               notchBlock: l.notchBlock || null, keyCount: lkeys, cdls: refs, fields: fields,
+               statics: statics };
     });
+    var layers = all.filter(function (l) { return l.fields.length; });
+    var setLayers = all.filter(function (l) { return l.statics.length; });
 
     if (lo === Infinity) {
       lo = 0;
       hi = st && typeof st.lengthInSec === 'number' ? st.lengthInSec : 1;
     }
 
-    totals.tracks++;
+    if (layers.length) totals.tracks++;
     totals.layers += layers.length;
     totals.fields += fieldCount;
     totals.keys += keyCount;
@@ -1284,9 +1378,12 @@ function keyframeReport(doc, snap) {
              lengthInSec: st && typeof st.lengthInSec === 'number' ? st.lengthInSec : null,
              start: lo, end: hi > lo ? hi : lo + 1,
              inSnapshot: !!st, trashed: !!(st && st.trashed), fps: fps,
-             anchors: anchors, cues: cues, layers: layers,
+             anchors: anchors, cues: cues, layers: layers, setLayers: setLayers,
              keyCount: keyCount, fieldCount: fieldCount, cdlLayers: cdlLayers, families: fams };
   });
+
+  var allTracks = tracks;
+  tracks = allTracks.filter(function (t) { return t.layers.length; });
 
   // Columns ranked by how many parameters animate, not by key count: one
   // brightness field with 96 keys is one busy fade, while 435 CDL fields is the
@@ -1306,7 +1403,7 @@ function keyframeReport(doc, snap) {
       keys: rest.reduce(function (s, f) { return s + familyKeys[f]; }, 0)
     });
   }
-  tracks.forEach(function (t) {
+  allTracks.forEach(function (t) {
     t.cells = columns.map(function (c) {
       var cell = { fields: 0, keys: 0 };
       c.members.forEach(function (f) {
@@ -1339,7 +1436,8 @@ function keyframeReport(doc, snap) {
 
   return { project: doc.project || null, capturedAt: doc.capturedAt || null,
            source: doc.source || null, formatVersion: doc.formatVersion || null,
-           columns: columns, tracks: tracks, cdls: cdls, totals: totals, notes: notes };
+           columns: columns, tracks: tracks, allTracks: allTracks, cdls: cdls, totals: totals,
+           staticsKnown: (doc.formatVersion || 0) >= 4, notes: notes };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

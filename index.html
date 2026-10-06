@@ -245,16 +245,32 @@
      column of identical `[VID] 130_ligh…` stubs tells nobody anything. */
   .mitem {
     display: grid; gap: 8px; padding: 0 4px;
-    grid-template-columns: minmax(0, 44ch) 8ch minmax(0, 1fr) 9ch 11ch;
+    grid-template-columns: minmax(0, var(--mname, 44ch)) 8ch minmax(0, 1fr) 16ch 11ch;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
   }
   .mitem > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Column heads, so the file column has an edge to drag. Sticky, because the
+     report runs to 1,700 rows and the handle is no use a screen above them.
+     The indent matches .mtrack > .lines (margin, border, padding), or the head
+     would sit 13px left of the columns it names. The row's own font, too: the
+     columns are in ch, and a ch in another face or size is another width. */
+  .mhead {
+    position: sticky; top: 0; z-index: 1; background: var(--bg);
+    margin-left: 13px; color: var(--dim);
+    border-bottom: 1px solid var(--edge); margin-bottom: 2px;
+  }
+  .mhead:hover { background: var(--bg); }
+  .mhead > span { position: relative; }
   .mitem:hover { background: #22262e; }
   .mitem .mv { color: var(--ch-fg); }
   .mitem .ml, .mitem .mk, .mitem .mt { color: var(--dim); }
-  /* A clip on a layer with rendering off is still loaded, so it is listed —
-     dimmed and labelled rather than dropped. */
-  .mitem.off .mn { color: var(--dim); }
+  /* A clip on a layer that is off -- disabled, muted, or rendering off -- is
+     still loaded, so it is listed: dimmed and labelled rather than dropped. The
+     two states get their own colours because they are different news: disabled
+     is saved in the show, muted is one machine's session. */
+  .mitem.off .mn, .mitem.off .ml { color: var(--dim); }
+  .mitem .mk .dis { color: var(--rm-fg); }
+  .mitem .mk .mut { color: var(--ch-fg); }
 
   /* Tags & notes. The media row's grid with its own columns: a clock, the
      tags, and the note taking what is left, since the note is the part a
@@ -316,21 +332,42 @@
 
   /* Keyframes. The grid and the CDLs ride in a sticky side column so the track
      picker stays in reach while the timeline beside it scrolls; under 1100px
-     there is no room for two columns and they stack. */
-  .kf { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 20px; align-items: start; }
+     there is no room for two columns and they stack. Both widths are CSS
+     variables set from kf.side and kf.label, so a drag moves the layout live
+     and the timeline is redrawn only once, on release. */
+  .kf {
+    display: grid; grid-template-columns: var(--kfside, 420px) 8px minmax(0, 1fr);
+    column-gap: 6px; align-items: start;
+  }
   .kfside { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow: auto; padding-right: 4px; }
   .kfmain { min-width: 0; }
   @media (max-width: 1100px) {
     .kf { grid-template-columns: minmax(0, 1fr); }
     .kfside { position: static; max-height: none; max-width: 640px; }
+    .kfsplit { display: none; }
   }
+  /* The dividers. Always faintly drawn: a handle that appears only on hover is
+     one nobody finds. Stretched rather than sticky, so the side splitter is the
+     height of the row it divides and never adds height of its own. */
+  .kfsplit { align-self: stretch; position: relative; cursor: col-resize; }
+  .kgrip { position: absolute; top: 0; right: 0; bottom: 0; width: 7px; cursor: col-resize; }
+  .kfsplit::after, .kgrip::after {
+    content: ''; position: absolute; top: 0; bottom: 0; width: 2px; border-radius: 1px;
+    background: var(--dim); opacity: .35; transition: opacity .12s;
+  }
+  .kfsplit::after { left: 3px; }
+  .kgrip::after { right: 0; }
+  .kfsplit:hover::after, .kgrip:hover::after, .kfsplit.drag::after, .kgrip.drag::after { opacity: 1; }
+  /* The cursor and the block on selection hold for the whole drag, not just
+     while the pointer is over the thin handle it started on. */
+  body.kfdrag, body.kfdrag * { cursor: col-resize !important; user-select: none; }
   .kpad { margin: 0 0 8px; }
   .kgrid { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 12px; }
   .kgrid th, .kgrid td { padding: 0; }
   .kgrid .kgt { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px 1px 4px; }
-  .kgrid th.kgt { color: var(--dim); font-weight: 400; vertical-align: bottom; }
-  /* Vertical headings: ten columns of parameter names do not fit across 420px
-     any other way, and a legend would put the name a glance away from its column. */
+  .kgrid th.kgt { color: var(--dim); font-weight: 400; vertical-align: bottom; position: relative; }
+  /* Vertical headings: ten columns of parameter names do not fit across the side
+     column any other way, and a legend would put the name a glance away from its column. */
   .kgh { width: 24px; height: 92px; vertical-align: bottom; cursor: pointer; color: var(--dim); font-weight: 400; }
   .kgh span {
     display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg);
@@ -392,7 +429,7 @@
   .kscroll { overflow: auto; max-height: calc(100vh - 160px); border: 1px solid var(--edge); border-radius: 4px; }
   .kr { display: flex; }
   .kl {
-    position: sticky; left: 0; z-index: 1; flex: none; width: 260px;
+    position: sticky; left: 0; z-index: 1; flex: none; width: var(--kfl, 260px);
     display: flex; gap: 5px; align-items: center; padding: 0 6px;
     background: var(--bg); border-right: 1px solid var(--edge);
     font-size: 12px; white-space: nowrap; overflow: hidden;
@@ -415,6 +452,60 @@
   .kgrp > .kr:hover, .kgrp > .kr:hover > .kl { background: #283040; }
   .kgrp:hover > .kr.dim { opacity: .8; }
   .kr.hot > .kl { box-shadow: inset 2px 0 var(--ch-fg); }
+  /* Keyframes list. Its own grid rather than the media report's: the columns
+     are a different question, and the summary row is a <summary> so the keys
+     fold under the parameter they belong to. The row is capped rather than each
+     column: on a wide window a full-width row pushed the values a screen away
+     from the layer they belong to, while capping the layer column alone clipped
+     its names with half the screen empty. Inside the cap the slack goes to the
+     layer, the column most often cut short -- and it has a floor, because a
+     grid fills every capped column before an fr column sees a pixel, so on a
+     narrow window the layer shrank to `[VID]…` while values had room to spare. */
+  .ksep { width: 10px; }
+  .kpar { margin: 0; }
+  .kprow {
+    display: grid; gap: 8px; padding: 0 4px; align-items: baseline; cursor: pointer; list-style: none;
+    grid-template-columns: 1ch minmax(28ch, 1fr) minmax(0, 24ch) 5ch 13ch 12ch minmax(0, 36ch) 7ch 2ch;
+    max-width: 200ch;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  }
+  .kprow::-webkit-details-marker { display: none; }
+  .kprow > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kprow:hover { background: #22262e; }
+  .kpcar { color: var(--dim); font-size: 11px; }
+  .kpcar::before { content: '\25B8'; }
+  .kpar[open] > .kprow .kpcar::before { content: '\25BE'; }
+  .klg { color: var(--dim); }
+  .kprow .kpk { text-align: right; color: var(--dim); }
+  .kprow .kpv { color: var(--ch-fg); }
+  .kprow .kpi { color: var(--dim); }
+  .kpar.hot > .kprow { box-shadow: inset 2px 0 var(--ch-fg); }
+  /* A set value is a setting, not animation: no caret, nothing to open, the
+     parameter dimmed and the value -- the whole point of the row -- given the
+     three columns a span, a timecode and a values summary would have taken. */
+  .kprow.kset { cursor: default; }
+  .kprow.kset .kpn { color: var(--dim); }
+  .kprow.kset .kpk { font-style: italic; }
+  .kprow.kset .kpv { grid-column: span 3; color: var(--fg); }
+  .kbtn[disabled] { opacity: .4; cursor: default; }
+  .kgo {
+    background: none; border: 0; padding: 0; cursor: pointer; color: var(--dim);
+    font: inherit; line-height: 1;
+  }
+  .kgo:hover { color: var(--fg); }
+  .kkeys { margin: 0 0 4px 3ch; border-left: 1px solid var(--edge); padding-left: 8px; }
+  .kkey {
+    display: grid; gap: 8px; padding: 0 4px; color: var(--dim);
+    grid-template-columns: 7ch 11ch 12ch minmax(0, 48ch) 9ch;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  }
+  .kkey > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kkey:hover { background: #22262e; }
+  .kkey .kkv { color: var(--fg); }
+  .kkey .kkn { grid-column: 1 / -1; }
+  /* Where a jump from the list landed: lit long enough to find, then gone. */
+  @keyframes kflash { from { background: #3b3527; } to { background: transparent; } }
+  .kr.kflash, .kr.kflash > .kl { animation: kflash 1.6s ease-out; }
   .ksvg { display: block; flex: none; }
   .ksvg .kbar { fill: #2c313b; }
   .kr.hot .ksvg .kbar { fill: #3b3527; }
@@ -507,7 +598,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.9.1</span>
+  <span id="ver">v2.10.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -1058,17 +1149,31 @@ function trackHay(t) {
           (t.trashed ? ' in the trash' : '')).toLowerCase();
 }
 
+// The state words are in the haystack because the row prints them, the same
+// rule as "trash": searching `disabled` is how you find what will not play.
 function itemHay(it) {
   return (plain(it.name) + ' ' + plain(it.version) + ' ' + plain(it.path) + ' ' +
-          layerOf(it) + ' ' + plain(it.type)).toLowerCase();
+          layerOf(it) + ' ' + plain(it.type) +
+          (it.enabled === false ? ' disabled' : '') +
+          (it.muted === true ? ' muted' : '')).toLowerCase();
 }
+
+var MUTE_NOTE = 'Muted on the director when the project was saved. Mute is per ' +
+  'machine and resets on a track change, so another machine, or the same one ' +
+  'after a reload, may not have it muted.';
 
 function renderItem(it) {
   // Flags read as words rather than as colour alone: a dimmed row with no
   // caption is a question, and the answer is two characters of text.
   var flags = [];
+  if (it.enabled === false) {
+    flags.push('<span class="dis" title="Disabled in Designer (or inside a disabled group). ' +
+               'Saved with the project, so it is off on every machine.">disabled</span>');
+  }
+  if (it.muted === true) flags.push('<span class="mut" title="' + esc(MUTE_NOTE) + '">muted</span>');
   if (it.hasAudio) flags.push('audio');
   if (it.renderEnable === false) flags.push('off');
+  var dark = it.enabled === false || it.muted === true || it.renderEnable === false;
   var span = it.tStart === null ? '·' : clock(it.tStart) + '–' + clock(it.tEnd);
   var lay = layerOf(it);
 
@@ -1077,12 +1182,12 @@ function renderItem(it) {
   // every row in the report, so printed it costs 20 characters to say nothing.
   // The flags do not go with it -- a layer with rendering off is a thing to
   // spot while scanning, not a thing to go hunting for.
-  return '<div class="mitem' + (it.renderEnable === false ? ' off' : '') + '">' +
+  return '<div class="mitem' + (dark ? ' off' : '') + '">' +
     '<span class="mn" title="' + esc(plain(it.path) + '  ' + plain(it.type)) + '">' +
     markup(it.name) + '</span>' +
     '<span class="mv">' + markup(it.version) + '</span>' +
     '<span class="ml" title="' + esc(lay) + '">' + markup(lay) + '</span>' +
-    '<span class="mk">' + esc(flags.join(' · ')) + '</span>' +
+    '<span class="mk">' + flags.join(' · ') + '</span>' +
     '<span class="mt">' + esc(span) + '</span></div>';
 }
 
@@ -1094,6 +1199,15 @@ function renderTrack(w) {
   if (t.lengthInSec !== null) meta.push(clock(t.lengthInSec));
   if (t.bpm !== null) meta.push(t.bpm + ' bpm');
   meta.push(w.items.length + ' media');
+  // On the closed line too: tracks start folded, and a song half of whose media
+  // is disabled should not need opening to find out.
+  var dis = 0, mut = 0;
+  t.items.forEach(function (it) {
+    if (it.enabled === false) dis++;
+    if (it.muted === true) mut++;
+  });
+  if (dis) meta.push(dis + ' disabled');
+  if (mut) meta.push(mut + ' muted');
 
   var html = '<details class="order mtrack' + (w.context ? ' context' : '') + '"' +
     (w.open ? ' open' : '') + '>' +
@@ -1145,16 +1259,73 @@ function filterTracks(tracks, hayOf) {
   return { list: out, hits: n };
 }
 
+// Said once, above the report, rather than as a blank on every row: a plugin
+// capture is silent on layer state, and a report with no `disabled` anywhere
+// must not read as a show with nothing disabled.
 function renderReport(list) {
-  return '<section class="tp"><div class="tphead">' +
+  var note = lastReport.totals.stateKnown ? '' :
+    '<p class="note kpad">This capture does not record whether layers are disabled or muted. ' +
+    'Drop the project&rsquo;s <code>.d3</code> to see that.</p>';
+  return note + '<section class="tp"><div class="tphead">' +
     '<span class="tpname">Media by track</span>' +
     '<button type="button" class="tpx">expand all</button>' +
     '<span class="grow of">' + plural(list.length, 'track') + '</span></div>' +
+    '<div class="mitem mhead"><span>file<span class="kgrip" data-msplit="name" ' +
+    'title="Drag to widen the file names; double-click to reset"></span></span>' +
+    '<span>version</span><span>layer</span><span>flags</span><span>time</span></div>' +
     list.map(renderTrack).join('') + '</section>';
+}
+
+/* The file column's width in px, or null for the stylesheet's 44ch. Kept apart
+ * from the keyframe widths: they are different columns in different tabs, and
+ * widening one has no reason to move the other. Per viewer, so browser storage,
+ * and a blocked one just leaves the default. */
+var mediaName = null;
+var MEDIA_NAME_MIN = 120;
+try {
+  var mediaSaved = JSON.parse(localStorage.getItem('media.widths') || 'null');
+  if (mediaSaved && mediaSaved.name > 0) mediaName = mediaSaved.name;
+} catch (e) {}
+
+// Clamped at use for the same reason as kfClamp: a width saved on a wide
+// monitor must still leave the layer column something on a laptop.
+function mediaClamp(w) {
+  var cw = document.getElementById('media').clientWidth || 1200;
+  return Math.round(Math.max(MEDIA_NAME_MIN, Math.min(w, cw - 400)));
+}
+
+function mediaApplyWidth(out) {
+  if (mediaName === null) out.style.removeProperty('--mname');
+  else out.style.setProperty('--mname', mediaClamp(mediaName) + 'px');
+}
+
+function mediaSaveWidth() {
+  try { localStorage.setItem('media.widths', JSON.stringify({ name: mediaName })); } catch (e) {}
+}
+
+// No repaint on release: the column is a CSS variable and the rows are already
+// right, so a 1,700-row report is not rebuilt to move one edge.
+function mediaDrag(e) {
+  var grip = e.target.closest ? e.target.closest('[data-msplit]') : null;
+  if (!grip || e.button !== 0) return;
+  var out = document.getElementById('media');
+  var w0 = grip.parentNode.getBoundingClientRect().width;
+  dragColumn(e, grip, function (dx) {
+    mediaName = mediaClamp(w0 + dx);
+    mediaApplyWidth(out);
+  }, mediaSaveWidth);
+}
+
+function mediaResetWidth(e) {
+  if (!(e.target.closest && e.target.closest('[data-msplit]'))) return;
+  mediaName = null;
+  mediaSaveWidth();
+  mediaApplyWidth(document.getElementById('media'));
 }
 
 function paintMedia() {
   var out = document.getElementById('media');
+  mediaApplyWidth(out);
   var count = document.getElementById('matches');
   count.textContent = '';
 
@@ -1279,11 +1450,28 @@ function paintCues() {
  */
 var lastKeys = null, keySource = null;
 // col is an index into lastKeys.columns; cdl is a CDL ref; open maps
-// "track|layer" to an expanded layer.
+// "track|layer" to an expanded layer. statics shows set values in the list.
+// view is 'timeline' or 'list'; lopen and
+// popen hold the list's folds opened (true) or shut (false) by hand, by track id
+// and by "track|layer|field" index, so a repaint per keystroke keeps them.
 var kf = { track: null, col: null, cdl: null, zoom: 1, open: {}, shut: {}, allOpen: false,
-           lastQuery: '' };
-var KF_LABEL = 260;              // px: the timeline's sticky name column
-var KF_SIDE = 420;               // px: the grid and CDL column, see .kf
+           lastQuery: '', view: 'timeline', lopen: {}, popen: {}, listFocus: null,
+           statics: false };
+var KF_LABEL = 260;              // px: the timeline's sticky name column, by default
+var KF_SIDE = 420;               // px: the grid and CDL column, see .kf, by default
+// Both columns can be dragged wider, since a track or layer name runs to
+// whatever Designer was given and any fixed width cuts some show short. The
+// floors keep the grid's parameter columns and a layer's caret on screen.
+var KF_MIN = { side: 320, label: 140 };
+kf.side = KF_SIDE;
+kf.label = KF_LABEL;
+// Per-viewer, so browser storage is the right place -- and a blocked or empty
+// one just leaves the defaults.
+try {
+  var kfSaved = JSON.parse(localStorage.getItem('kf.widths') || 'null');
+  if (kfSaved && kfSaved.side > 0) kf.side = kfSaved.side;
+  if (kfSaved && kfSaved.label > 0) kf.label = kfSaved.label;
+} catch (e) {}
 var KF_ZOOMS = [1, 2, 4, 8, 16];
 
 // Drop a selection the new report cannot honour instead of drawing an empty
@@ -1390,7 +1578,11 @@ function kfGrid(tracks, hitsOf) {
     lastKeys.tracks.forEach(function (t) { m = Math.max(m, t.cells[i].keys); });
     return m;
   });
-  var head = '<tr><th class="kgt">track</th>' + cols.map(function (c, i) {
+  // The grip drives the side column: the parameter columns are fixed, so every
+  // pixel the side gains goes to the track names, and a second width to keep
+  // in step with the first would only be a way for the two to disagree.
+  var head = '<tr><th class="kgt">track<span class="kgrip" data-split="side" ' +
+    'title="Drag to widen the track names; double-click to reset"></span></th>' + cols.map(function (c, i) {
     var what = c.family === 'other' ? 'Everything outside the named columns: ' + c.members.join(', ')
       : c.family === 'Notch' ? 'Notch and RenderStream parameters' : c.family;
     return '<th class="kgh' + (kf.col === i ? ' on' : '') + '" data-colh="' + i + '" title="' +
@@ -1476,9 +1668,11 @@ function kfTime(t, s) {
   return clock(s) + ' (' + fmt(s) + ' s)' + (tc ? ' · TC ' + tc : '');
 }
 
-function kfValue(v) {
+// `opts` is the parameter's option names, when it has them: the name leads and
+// the number stays beside it, since Designer's own UI and older notes say `8`.
+function kfValue(v, opts) {
   if (v === null || v === undefined) return 'none';
-  if (typeof v === 'number') return fmt(v);
+  if (typeof v === 'number') return opts && opts[v] ? opts[v] + ' (' + fmt(v) + ')' : fmt(v);
   var c = lastKeys.cdlByRef[v];
   return c ? c.name : String(v).split('/').pop();
 }
@@ -1531,7 +1725,9 @@ function kfTimeline(t, width) {
   });
 
   var html = '<div class="kr kruler"><div class="kl">' +
-    (t.anchors.length ? 'time · hover for TC' : 'time') + '</div>' + svg(26, ruler) + '</div>';
+    (t.anchors.length ? 'time · hover for TC' : 'time') +
+    '<span class="kgrip" data-split="label" title="Drag to widen the names; double-click to reset">' +
+    '</span></div>' + svg(26, ruler) + '</div>';
 
   rows.forEach(function (r) {
     var l = r.layer;
@@ -1565,7 +1761,7 @@ function kfTimeline(t, width) {
     r.fields.forEach(function (f) {
       f.keys.forEach(function (k) {
         if (typeof k.t !== 'number') return;
-        (at[k.t] = at[k.t] || []).push(f.display + ' ' + kfValue(k.value));
+        (at[k.t] = at[k.t] || []).push(f.display + ' ' + kfValue(k.value, f.options));
       });
     });
     Object.keys(at).forEach(function (k) {
@@ -1599,7 +1795,9 @@ function kfTimeline(t, width) {
     html += '<p class="note kpad">Nothing on this track is in the ' +
             esc(lastKeys.columns[kf.col].family) + ' column.</p>';
   }
-  return '<div class="kscroll"><div class="ktl" style="width:' + (W + KF_LABEL) + 'px">' +
+  // calc() against the variable, so the strip grows with the name column while
+  // a drag is still under way and the time axis is not squeezed.
+  return '<div class="kscroll"><div class="ktl" style="width:calc(' + W + 'px + var(--kfl))">' +
          html + '</div></div>';
 }
 
@@ -1608,7 +1806,7 @@ function kfFieldLabel(f) {
     : f.numeric && f.min !== null ? fmt(f.min) + (f.max !== f.min ? ' – ' + fmt(f.max) : '') : '';
   return '<div class="kl" title="' + esc(f.display + (f.label && f.label !== f.name ? '\n' + f.name : '') +
     '\n' + plain(f.valueType) + ' · ' + plural(f.keys.length, 'key') +
-    (f.expression ? '\nexpression: ' + f.expression : '') + '\nDefault ' + kfValue(f['default']) +
+    (f.expression ? '\nexpression: ' + f.expression : '') + '\nDefault ' + kfValue(f['default'], f.options) +
     '\nInterpolation names are inferred, not confirmed in Designer.') + '">' +
     '<span class="kln">' + markup(f.display) + '</span><span class="grow of">' + esc(range) + '</span></div>';
 }
@@ -1650,13 +1848,13 @@ function kfBlocks(f, l, t, x, pps, diamond) {
     body += '<svg x="' + x(sg.from) + '" y="3" width="' + w.toFixed(1) + '" height="14">' +
       '<rect width="100%" height="14" rx="2" style="fill:' + fill + '"/>' +
       (w > 36 ? '<text class="kst" x="4" y="11" style="fill:' + kfInk(fill) + '">' +
-                esc(kfValue(sg.value)) + '</text>' : '') +
-      '<title>' + esc(f.display + ' ' + kfValue(sg.value) + '\n' + kfTime(t, sg.from) + ' – ' +
+                esc(kfValue(sg.value, f.options)) + '</text>' : '') +
+      '<title>' + esc(f.display + ' ' + kfValue(sg.value, f.options) + '\n' + kfTime(t, sg.from) + ' – ' +
                       kfTime(t, sg.to)) + '</title></svg>';
   });
   f.keys.forEach(function (k) {
     if (typeof k.t !== 'number') return;
-    body += diamond(x(k.t), 10, 'kd small', f.display + ' → ' + kfValue(k.value) + '\n' +
+    body += diamond(x(k.t), 10, 'kd small', f.display + ' → ' + kfValue(k.value, f.options) + '\n' +
                     kfTime(t, k.t) + (k.interpolation ? '\n' + k.interpolation : ''));
   });
   return body;
@@ -1697,7 +1895,7 @@ function kfCurve(f, l, t, x, diamond) {
   }
   body += '<path class="kcurve" d="' + d + '"/>';
   keys.forEach(function (k) {
-    body += diamond(x(k.t), +y(k.value), 'kd', f.display + ' = ' + fmt(k.value) + '\n' +
+    body += diamond(x(k.t), +y(k.value), 'kd', f.display + ' = ' + kfValue(k.value, f.options) + '\n' +
                     kfTime(t, k.t) + (k.interpolation ? '\n' + k.interpolation : ''));
   });
   return body;
@@ -1729,11 +1927,283 @@ function kfTrackPanel(t, width) {
   if (query && !kfHits(t)) why.push('Nothing on this track matches the search; it is shown dimmed.');
   return '<div class="kfhead"><span class="tpname">' + markup(t.name) + '</span>' +
     '<span class="of">' + esc(meta.join(' · ')) + '</span>' + chips +
-    '<span class="grow kzoom">' + zoom +
+    '<span class="grow kzoom">' + kfViewToggle() + '<span class="ksep"></span>' + zoom +
     '<button type="button" class="kbtn" data-all="1">' + (kf.allOpen ? 'collapse all' : 'expand all') +
     '</button></span></div>' +
     why.map(function (w) { return '<p class="note">' + esc(w) + '</p>'; }).join('') +
     kfTimeline(t, width);
+}
+
+/* List view ------------------------------------------------------------------
+ * Every animated parameter in the show as one line of text, for the questions
+ * the timeline answers badly: where is brightness keyed to 0, what switches to
+ * this CDL, what moves at this timecode. A row is a parameter, not a key --
+ * ~2,200 lines fold into their tracks where ~5,700 would be a wall -- and its
+ * keys wait inside it.
+ *
+ * Search filters here where the timeline dims. The timeline is read for where
+ * things sit against each other, so lifting rows out of it loses the answer; a
+ * list is read down, and the rows that missed are only distance between hits.
+ */
+function kfViewToggle() {
+  return ['timeline', 'list'].map(function (v) {
+    return '<button type="button" class="kbtn' + (kf.view === v ? ' on' : '') + '" data-view="' + v + '">' +
+           v + '</button>';
+  }).join('');
+}
+
+// Computed once per parameter and kept on it: a search repaints per keystroke,
+// and the haystack walks every key through timecodeAt.
+function kfListSummary(t, f) {
+  if (f.listSummary) return f.listSummary;
+  var lo = null, hi = null, vals = [], interps = [];
+  f.keys.forEach(function (k) {
+    if (typeof k.t === 'number') {
+      lo = lo === null ? k.t : Math.min(lo, k.t);
+      hi = hi === null ? k.t : Math.max(hi, k.t);
+    }
+    var v = kfValue(k.value, f.options);
+    if (vals[vals.length - 1] !== v) vals.push(v);
+    if (k.interpolation && interps.indexOf(k.interpolation) < 0) interps.push(k.interpolation);
+  });
+  var distinct = vals.filter(function (v, i) { return vals.indexOf(v) === i; });
+  var values, full = vals.join(' → ');
+  if (f.expression) values = 'expression';
+  // A choice has no range: `Over – Screen` would read as everything between.
+  else if (f.numeric && f.min !== null && !f.options) values = fmt(f.min) + (f.max !== f.min ? ' – ' + fmt(f.max) : '');
+  else if (!vals.length) values = '';
+  else if (vals.length <= 2) values = full;
+  // First and last, not every step: a clip parameter can switch forty times,
+  // and the count says how far apart the two ends are.
+  else values = vals[0] + ' → … → ' + vals[vals.length - 1] + ' · ' + plural(distinct.length, 'value');
+  var s = {
+    lo: lo, hi: hi,
+    span: lo === null ? '' : clock(lo) + (hi !== lo ? ' – ' + clock(hi) : ''),
+    spanTitle: lo === null ? '' : kfTime(t, lo) + (hi !== lo ? '\n' + kfTime(t, hi) : ''),
+    tc: lo === null ? '' : (timecodeAt(t, lo) || ''),
+    values: values,
+    valuesTitle: f.expression ? 'expression: ' + f.expression
+      : f.numeric && !f.options ? 'first ' + (vals[0] || '') + ', last ' + (vals[vals.length - 1] || '') : full,
+    interp: interps.length === 1 ? interps[0] : interps.length ? 'mixed' : ''
+  };
+  s.hay = (s.span + ' ' + s.tc + ' ' + s.values + ' ' + s.interp + ' ' +
+           (f.expression ? 'expression' : '')).toLowerCase();
+  // Every key as the line under the row prints it: time, seconds, timecode,
+  // value and interpolation -- anything you can read there, you can search for.
+  s.keysHay = f.keys.map(function (k) {
+    return (typeof k.t === 'number' ? clock(k.t) + ' ' + fmt(k.t) + ' ' + (timecodeAt(t, k.t) || '') : '') +
+      ' ' + kfValue(k.value, f.options) + ' ' + plain(k.interpolation);
+  }).join(' ').toLowerCase();
+  f.listSummary = s;
+  return s;
+}
+
+/* What the list shows: every track with the parameters the column filter
+ * leaves and the search keeps. As in the other reports a track whose own name
+ * matches shows entire, and a track kept for some of its rows shows only those
+ * with its name dimmed. `byKey` marks a parameter kept for one of its keys
+ * rather than its own row; it opens, since the hit is a line inside it. */
+// The tracks the list walks: with set values on, the ones holding settings
+// only join in, in the file's order, so a show-wide question like "which layers
+// are on additive blend" reaches a track that animates nothing.
+function kfListTracks() {
+  return kf.statics && lastKeys.staticsKnown ? lastKeys.allTracks : lastKeys.tracks;
+}
+
+// A set value's searchable text is what its row prints, plus the word `set`.
+function kfStaticHay(sv) {
+  return (plain(sv.name) + ' ' + plain(sv.display) + ' ' + kfValue(sv.value, sv.options) + ' ' +
+          plain(sv.value) + ' set').toLowerCase();
+}
+
+function kfListing() {
+  var col = kf.col === null ? null : lastKeys.columns[kf.col];
+  var out = [], params = 0, sets = 0;
+  kfListTracks().forEach(function (t, ti) {
+    var th = kfTrackHay(t);
+    var trackHit = !query || hitsText(th);
+    var rows = [];
+    t.layers.forEach(function (l, li) {
+      var lh = th + ' ' + kfLayerHay(l);
+      var layerHit = trackHit || hitsText(lh);
+      l.fields.forEach(function (f, fi) {
+        if (col && col.members.indexOf(f.family) < 0) return;
+        var byKey = false;
+        if (!layerHit) {
+          var s = kfListSummary(t, f), base = lh + ' ' + kfFieldHay(f) + ' ' + s.hay;
+          if (!hitsText(base)) {
+            if (!hitsText(base + ' ' + s.keysHay)) return;
+            byKey = true;
+          }
+        }
+        rows.push({ layer: l, li: li, field: f, fi: fi, byKey: byKey });
+      });
+    });
+    var nset = 0;
+    if (kf.statics) {
+      (t.setLayers || []).forEach(function (l) {
+        var lh = th + ' ' + kfLayerHay(l);
+        var layerHit = trackHit || hitsText(lh);
+        l.statics.forEach(function (sv) {
+          if (col && col.members.indexOf(sv.family) < 0) return;
+          if (!layerHit && !hitsText(lh + ' ' + kfStaticHay(sv))) return;
+          rows.push({ layer: l, set: sv });
+          nset++;
+        });
+      });
+    }
+    if (!rows.length) return;
+    params += rows.length;
+    sets += nset;
+    out.push({ track: t, pos: ti + 1, rows: rows, sets: nset, context: !trackHit });
+  });
+  return { list: out, params: params, sets: sets };
+}
+
+// What the list's counts say: set values named apart, since "9,400 parameters"
+// would read as nine thousand things that move.
+function kfListCount(listing) {
+  var anim = listing.params - listing.sets;
+  return (anim || !listing.sets ? plural(anim, 'parameter') : '') +
+    (listing.sets ? (anim ? ' + ' : '') + plural(listing.sets, 'set value') : '') +
+    ' on ' + plural(listing.list.length, 'track');
+}
+
+function kfListStatic(t, r) {
+  var l = r.layer, sv = r.set;
+  var path = l.group.concat([l.name]).join(' / ');
+  var group = l.group.length ? '<span class="klg">' + markup(l.group.join(' / ')) + ' / </span>' : '';
+  return '<div class="kprow kset"><span></span>' +
+    '<span title="' + esc(path + '\n' + plain(l.type)) + '">' + group + markup(l.name) + '</span>' +
+    '<span class="kpn" title="' + esc(sv.display + (sv.label && sv.label !== sv.name ? '\n' + sv.name : '')) + '">' +
+    markup(sv.display) + '</span>' +
+    '<span class="kpk" title="One key: set to this value and left there">set</span>' +
+    '<span class="kpv" title="' + esc((sv.value === null ? 'none' : String(sv.value)) +
+      '\ndefault ' + kfValue(sv['default'], sv.options)) + '">' + markup(kfValue(sv.value, sv.options)) + '</span>' +
+    '<span></span><span></span></div>';
+}
+
+function kfListParam(t, r) {
+  var l = r.layer, f = r.field, s = kfListSummary(t, f);
+  var k = t.id + '|' + r.li + '|' + r.fi;
+  var open = kf.popen[k] === true || (kf.popen[k] !== false && r.byKey);
+  var hot = kf.cdl && l.cdls.indexOf(kf.cdl) >= 0;
+  var path = l.group.concat([l.name]).join(' / ');
+  var group = l.group.length ? '<span class="klg">' + markup(l.group.join(' / ')) + ' / </span>' : '';
+  var lines = f.keys.map(function (key) {
+    var has = typeof key.t === 'number', tc = has ? timecodeAt(t, key.t) : null;
+    return '<div class="kkey">' +
+      '<span>' + markup(has ? clock(key.t) : '·') + '</span>' +
+      '<span>' + markup(has ? fmt(key.t) + ' s' : '') + '</span>' +
+      '<span>' + markup(tc || '') + '</span>' +
+      '<span class="kkv" title="' + esc(key.value === null ? 'none' : String(key.value)) + '">' +
+      markup(kfValue(key.value, f.options)) + '</span>' +
+      '<span>' + markup(plain(key.interpolation)) + '</span></div>';
+  }).join('');
+  if (!lines) {
+    lines = '<div class="kkey"><span class="kkn">' +
+      (f.expression ? 'No keys: driven by an expression.' : 'No keys.') + '</span></div>';
+  }
+  return '<details class="kpar' + (hot ? ' hot' : '') + '" data-lp="' + esc(k) + '"' + (open ? ' open' : '') + '>' +
+    '<summary class="kprow"><span class="kpcar"></span>' +
+    '<span title="' + esc(path + '\n' + plain(l.type)) + '">' + group + markup(l.name) + '</span>' +
+    '<span class="kpn" title="' + esc(f.display + (f.label && f.label !== f.name ? '\n' + f.name : '')) + '">' +
+    markup(f.display) + '</span>' +
+    '<span class="kpk">' + f.keys.length + '</span>' +
+    '<span title="' + esc(s.spanTitle) + '">' + markup(s.span) + '</span>' +
+    '<span title="' + esc(s.tc ? 'TC at the first key' : '') + '">' + markup(s.tc) + '</span>' +
+    '<span class="kpv" title="' + esc(s.valuesTitle) + '">' + markup(s.values) + '</span>' +
+    '<span class="kpi">' + markup(s.interp) + '</span>' +
+    '<button type="button" class="kgo" data-go="' + esc(t.id + '|' + (l.id || '@' + r.li)) +
+    '" data-gotrack="' + esc(t.id) + '" data-gofam="' + esc(f.family) +
+    '" title="Show on the timeline">&#8599;</button></summary>' +
+    '<div class="kkeys">' + lines + '</div></details>';
+}
+
+// The rows of a folded track are drawn when it opens, not with the page: with
+// set values on, 10,900 rows inside closed folds took ~600 ms a paint, and a
+// paint runs per keystroke. kfLazy keeps the last listing's blocks by track id
+// for the toggle handler to fill from.
+var kfLazy = {};
+
+function kfListRows(w) {
+  return w.rows.map(function (r) {
+    return r.set ? kfListStatic(w.track, r) : kfListParam(w.track, r);
+  }).join('');
+}
+
+function kfListOpened(e) {
+  var d = e.target;
+  if (!d.open || !d.getAttribute || d.getAttribute('data-lazy') === null) return;
+  var w = kfLazy[d.getAttribute('data-lt')];
+  d.removeAttribute('data-lazy');
+  if (w) d.querySelector('.lines').innerHTML = kfListRows(w);
+}
+
+function kfListTrack(w) {
+  var t = w.track;
+  kfLazy[t.id] = w;
+  // Opened by hand wins; otherwise a search opens what it kept, since a hit you
+  // cannot see is not a hit.
+  var open = kf.lopen[t.id] === true || (kf.lopen[t.id] !== false && !!query);
+  var keys = 0;
+  w.rows.forEach(function (r) { if (r.field) keys += r.field.keys.length; });
+  var anim = w.rows.length - (w.sets || 0);
+  var meta = anim ? [plural(anim, 'parameter'), plural(keys, 'key')] : [];
+  if (w.sets) meta.push(plural(w.sets, 'set value'));
+  return '<details class="order mtrack kltrack' + (w.context ? ' context' : '') + '" data-lt="' + esc(t.id) + '"' +
+    (open ? ' open' : ' data-lazy="1"') + '><summary><span class="tnum">' + w.pos + '</span>' +
+    '<span class="tname">' + markup(t.name) + '</span>' +
+    (t.trashed ? '<span class="r trash">in the trash</span>' : '') +
+    '<span class="grow of">' + esc(meta.join(' · ')) + '</span></summary>' +
+    '<div class="lines">' + (open ? kfListRows(w) : '') +
+    '</div></details>';
+}
+
+function kfList(listing) {
+  kfLazy = {};
+  var anyShut = listing.list.some(function (w) {
+    return !(kf.lopen[w.track.id] === true || (kf.lopen[w.track.id] !== false && !!query));
+  });
+  // Disabled rather than hidden on a format 3 file: the button is how you learn
+  // the feature exists, and its title says what it needs.
+  var setBtn = lastKeys.staticsKnown
+    ? '<button type="button" class="kbtn' + (kf.statics ? ' on' : '') + '" data-statics="1" ' +
+      'title="Also list parameters set once and left at a value other than their default">set values</button>'
+    : '<button type="button" class="kbtn" disabled title="These keyframes were read before set values ' +
+      'were exported. Drop the .d3 again with this version to see them.">set values</button>';
+  var head = '<div class="kfhead"><span class="tpname">Every animated parameter' +
+    (kf.statics && lastKeys.staticsKnown ? ' and set value' : '') + '</span>' +
+    '<span class="of">' + esc(kfListCount(listing)) + '</span>' +
+    '<span class="grow kzoom">' + kfViewToggle() + setBtn +
+    '<button type="button" class="kbtn" data-lall="' + (anyShut ? '1' : '') + '">' +
+    (anyShut ? 'expand all' : 'collapse all') + '</button></span></div>';
+  if (!listing.list.length) {
+    return head + (query ? '<p class="empty">Nothing matches “' + esc(query) + '”.</p>'
+      : '<p class="note kpad">Nothing on any track is in the ' + esc(lastKeys.columns[kf.col].family) +
+        ' column.</p>');
+  }
+  return head + listing.list.map(kfListTrack).join('');
+}
+
+// The timeline is drawn for one track, so jumping there means picking the
+// track, opening the layer and scrolling it into the box -- and lifting a
+// column filter that would hide the very parameter you came from.
+function kfJump(el) {
+  var key = el.getAttribute('data-go'), fam = el.getAttribute('data-gofam');
+  kf.view = 'timeline';
+  kf.track = el.getAttribute('data-gotrack');
+  if (kf.col !== null && lastKeys.columns[kf.col].members.indexOf(fam) < 0) kf.col = null;
+  delete kf.shut[key];
+  kf.open[key] = true;
+  paintKeys();
+  var s = document.querySelector('#keys .kscroll');
+  var rows = document.querySelectorAll('#keys [data-layer]'), hit = null;
+  for (var i = 0; i < rows.length; i++) if (rows[i].getAttribute('data-layer') === key) hit = rows[i];
+  if (!s || !hit) return;
+  s.scrollIntoView({ block: 'nearest' });
+  s.scrollTop += hit.getBoundingClientRect().top - s.getBoundingClientRect().top - 40;
+  hit.parentNode.classList.add('kflash');
 }
 
 // Room left for the timeline's time axis once the side column and the sticky
@@ -1742,8 +2212,81 @@ function kfTrackPanel(t, width) {
 function kfWidth() {
   var box = document.getElementById('keys');
   var cw = box.clientWidth || 1200;
-  var side = window.matchMedia('(max-width: 1100px)').matches ? 0 : KF_SIDE + 20;
-  return Math.max(320, cw - side - KF_LABEL - 4);
+  var side = window.matchMedia('(max-width: 1100px)').matches ? 0 : kfClamp('side', kf.side) + 20;
+  return Math.max(320, cw - side - kfClamp('label', kf.label) - 4);
+}
+
+// Clamped at use, not only at drag, so a width saved on a wide monitor cannot
+// leave the timeline no room on a laptop. The floor wins when the two cross.
+function kfClamp(which, w) {
+  var cw = document.getElementById('keys').clientWidth || 1200;
+  var max = which === 'side' ? cw - 400 : cw / 2;
+  return Math.round(Math.max(KF_MIN[which], Math.min(w, max)));
+}
+
+function kfApplyWidths(out) {
+  out.style.setProperty('--kfside', kfClamp('side', kf.side) + 'px');
+  out.style.setProperty('--kfl', kfClamp('label', kf.label) + 'px');
+}
+
+function kfSaveWidths() {
+  try { localStorage.setItem('kf.widths', JSON.stringify({ side: kf.side, label: kf.label })); }
+  catch (e) {}
+}
+
+/* One column drag for every resizable column on the page. `move` gets the
+ * pointer's travel since the press; `done` runs on release, and only when the
+ * pointer moved -- a click that never moved must leave the handle in place,
+ * because a repaint would replace it and the second half of a double-click
+ * (the reset) would land on nothing. */
+function dragColumn(e, grip, move, done) {
+  var x0 = e.clientX, moved = false;
+  e.preventDefault();
+  grip.setPointerCapture(e.pointerId);
+  grip.classList.add('drag');
+  document.body.classList.add('kfdrag');
+  function onMove(ev) {
+    moved = true;
+    move(ev.clientX - x0);
+  }
+  function up() {
+    grip.removeEventListener('pointermove', onMove);
+    grip.removeEventListener('pointerup', up);
+    grip.removeEventListener('pointercancel', up);
+    grip.classList.remove('drag');
+    document.body.classList.remove('kfdrag');
+    if (moved) done();
+  }
+  grip.addEventListener('pointermove', onMove);
+  grip.addEventListener('pointerup', up);
+  grip.addEventListener('pointercancel', up);
+}
+
+// The variables follow the pointer; paintKeys waits for the release, because
+// "fit" is a width the render bakes in and redrawing every SVG per pixel of
+// drag is what would make it stutter.
+function kfDrag(e) {
+  var grip = e.target.closest ? e.target.closest('[data-split]') : null;
+  if (!grip || e.button !== 0) return;
+  var which = grip.getAttribute('data-split');
+  var out = document.getElementById('keys');
+  var w0 = kfClamp(which, kf[which]);
+  dragColumn(e, grip, function (dx) {
+    kf[which] = kfClamp(which, w0 + dx);
+    kfApplyWidths(out);
+  }, function () {
+    kfSaveWidths();
+    paintKeys();
+  });
+}
+
+function kfResetWidth(e) {
+  var grip = e.target.closest ? e.target.closest('[data-split]') : null;
+  if (!grip) return;
+  var which = grip.getAttribute('data-split');
+  kf[which] = which === 'side' ? KF_SIDE : KF_LABEL;
+  kfSaveWidths();
+  paintKeys();
 }
 
 function paintKeys() {
@@ -1770,7 +2313,21 @@ function paintKeys() {
   // Every track stays in the grid; the search counts and dims instead of
   // filtering, so the shape of the show stays in view around what matched.
   var shown = lastKeys.tracks, hits = 0, hitsOf = {}, hitTracks = [];
-  if (query) {
+  var listing = kf.view === 'list' ? kfListing() : null;
+  if (listing) {
+    // The grid dims by what the list kept, which reaches values and timecodes
+    // the timeline's search does not; dimming by the narrower rule would grey
+    // out the very tracks the list is showing.
+    // Only tracks the grid has: one holding set values alone is in the list but
+    // not the grid, and counting it would print "102 of 64 tracks match".
+    listing.list.forEach(function (w) {
+      hitsOf[w.track.id] = w.rows.length;
+      if (w.track.layers.length) hitTracks.push(w.track);
+    });
+    if (query) {
+      count.textContent = listing.params ? kfListCount(listing) : 'no matches';
+    }
+  } else if (query) {
     shown.forEach(function (t) {
       var n = kfHits(t);
       hitsOf[t.id] = n;
@@ -1790,9 +2347,11 @@ function paintKeys() {
   var track = shown.filter(function (t) { return t.id === kf.track; })[0] || shown[0];
 
   var scroller = out.querySelector('.kscroll');
-  var keep = scroller && out.getAttribute('data-shown') === track.id + '|' + kf.zoom
+  // Only timeline to timeline: the list has no box to put the offsets back on.
+  var keep = !listing && scroller && out.getAttribute('data-shown') === track.id + '|' + kf.zoom
     ? { left: scroller.scrollLeft, top: scroller.scrollTop } : null;
 
+  kfApplyWidths(out);
   var notes = lastKeys.notes.concat(keySource && !snaps[keySource]
     ? ['No snapshot sits beside these keyframes, so there are no cue markers or timecode.'] : []);
   out.innerHTML = notes.map(function (n) { return '<p class="note kpad">' + esc(n) + '</p>'; }).join('') +
@@ -1805,9 +2364,18 @@ function paintKeys() {
     '<section class="tp"><div class="tphead"><span class="tpname">CDLs</span>' +
     '<span class="grow of">' + plural(lastKeys.cdls.length, 'CDL') + ' on ' +
     plural(lastKeys.totals.cdlLayers, 'layer') + '</span></div>' + kfCdlList() + '</section>' +
-    '</aside><section class="kfmain">' + kfTrackPanel(track, kfWidth()) + '</section></div>';
+    '</aside><div class="kfsplit" data-split="side" ' +
+    'title="Drag to widen the track names; double-click to reset"></div><section class="kfmain">' +
+    (listing ? kfList(listing) : kfTrackPanel(track, kfWidth())) + '</section></div>';
   out.setAttribute('data-shown', track.id + '|' + kf.zoom);
 
+  if (listing && kf.listFocus) {
+    var blocks = out.querySelectorAll('details.kltrack');
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i].getAttribute('data-lt') === kf.listFocus) blocks[i].scrollIntoView({ block: 'start' });
+    }
+    kf.listFocus = null;
+  }
   if (keep) {
     var s = out.querySelector('.kscroll');
     s.scrollLeft = keep.left;
@@ -1816,10 +2384,46 @@ function paintKeys() {
 }
 
 function keysClick(e) {
-  var el = e.target.closest ? e.target.closest('[data-track],[data-col],[data-colh],[data-cdl],' +
-    '[data-layer],[data-zoom],[data-all],[data-clear]') : null;
-  if (!el) return;
+  if (!e.target.closest) return;
+  var el = e.target.closest('[data-track],[data-col],[data-colh],[data-cdl],' +
+    '[data-layer],[data-zoom],[data-all],[data-clear],[data-go],[data-view],[data-lall],[data-statics]');
+  if (!el) {
+    // A list fold toggles itself; it is only remembered here, as the opposite
+    // of what it showed, and not repainted -- a repaint would race the toggle.
+    var sum = e.target.closest('summary'), d = sum && sum.parentNode;
+    if (d && d.getAttribute('data-lt') !== null) kf.lopen[d.getAttribute('data-lt')] = !d.open;
+    if (d && d.getAttribute('data-lp') !== null) kf.popen[d.getAttribute('data-lp')] = !d.open;
+    return;
+  }
   var v;
+  if ((v = el.getAttribute('data-go')) !== null) {
+    e.preventDefault();          // the button sits in a summary, which would fold
+    kfJump(el);
+    return;
+  }
+  if ((v = el.getAttribute('data-view')) !== null) {
+    kf.view = v;
+    paintKeys();
+    return;
+  }
+  if ((v = el.getAttribute('data-lall')) !== null) {
+    kf.lopen = {};
+    kfListTracks().forEach(function (t) { kf.lopen[t.id] = !!v; });
+    paintKeys();
+    return;
+  }
+  if (el.getAttribute('data-statics') !== null) {
+    kf.statics = !kf.statics;
+    paintKeys();
+    return;
+  }
+  // In the list a track pick goes to that track's block instead of leaving the
+  // view; the timeline beside the grid is not on screen to change.
+  var pick = el.closest('[data-track]');
+  if (kf.view === 'list' && pick && el.getAttribute('data-colh') === null) {
+    kf.lopen[pick.getAttribute('data-track')] = true;
+    kf.listFocus = pick.getAttribute('data-track');
+  }
   if ((v = el.getAttribute('data-col')) !== null) {
     // A cell picks its track and its column together; the same cell again
     // clears the column, the one gesture undoing the other.
@@ -1861,14 +2465,14 @@ function zoomKeys(z) {
   var s = document.querySelector('#keys .kscroll');
   var frac = null;
   if (s) {
-    var w = s.scrollWidth - KF_LABEL;
-    frac = w > 0 ? (s.scrollLeft + (s.clientWidth - KF_LABEL) / 2) / w : null;
+    var lw = kfClamp('label', kf.label), w = s.scrollWidth - lw;
+    frac = w > 0 ? (s.scrollLeft + (s.clientWidth - lw) / 2) / w : null;
   }
   kf.zoom = z;
   paintKeys();
   s = document.querySelector('#keys .kscroll');
   if (s && frac !== null) {
-    s.scrollLeft = Math.max(0, frac * (s.scrollWidth - KF_LABEL) - (s.clientWidth - KF_LABEL) / 2);
+    s.scrollLeft = Math.max(0, frac * (s.scrollWidth - lw) - (s.clientWidth - lw) / 2);
   }
 }
 
@@ -2299,7 +2903,9 @@ function setTab(name) {
   document.getElementById('tally').innerHTML =
     changes ? changeTally :
     tab === 'media' ? (m
-      ? '<b>' + m.tracks + '</b> tracks &nbsp; <b>' + m.media + '</b> media' + from : '') :
+      ? '<b>' + m.tracks + '</b> tracks &nbsp; <b>' + m.media + '</b> media' +
+        (m.disabled ? ' &nbsp; <b>' + m.disabled + '</b> disabled' : '') +
+        (m.muted ? ' &nbsp; <b>' + m.muted + '</b> muted' : '') + from : '') :
     tab === 'cues' ? (q
       ? '<b>' + q.cues + '</b> cues &nbsp; <b>' + q.notes + '</b> notes &nbsp; <b>' +
         q.tags + '</b> tags' + from : '') :
@@ -2372,6 +2978,12 @@ wire('dropB', 'fileB', 'b');
   document.getElementById('cues').addEventListener('click', expander);
   document.getElementById('transports').addEventListener('click', expander);
   document.getElementById('keys').addEventListener('click', keysClick);
+  document.getElementById('keys').addEventListener('pointerdown', kfDrag);
+  // Capture, because toggle does not bubble.
+  document.getElementById('keys').addEventListener('toggle', kfListOpened, true);
+  document.getElementById('media').addEventListener('pointerdown', mediaDrag);
+  document.getElementById('media').addEventListener('dblclick', mediaResetWidth);
+  document.getElementById('keys').addEventListener('dblclick', kfResetWidth);
 
   // "fit" is measured against the window, so a resize redraws the timeline to
   // the new width -- once the drag settles, not on every pixel of it.
