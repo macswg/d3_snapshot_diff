@@ -16,6 +16,8 @@
     --bg: #16181d; --panel: #1e2128; --edge: #2f333c;
     --fg: #e6e8ec; --dim: #878d99;
     --add: #4ec9776; --add-fg: #6fd08c; --rm-fg: #e8737f; --ch-fg: #d7a45f;
+    /* Blue because green, red and amber already mean added, removed, changed. */
+    --link: #6cb6ff;
   }
   * { box-sizing: border-box; }
   /* Column flex with main growing keeps the footer against the bottom of the
@@ -253,9 +255,9 @@
   .tpx:hover { color: var(--fg); }
   .optsrc .path { color: var(--fg); word-break: break-all; }
   .optwarn { color: var(--ch-fg); }
-  /* Styled as the page's links, not as .tpx: .tpx is a quiet view toggle, and
-     this is the one action that fills the section in, sitting in dim note text. */
-  .tpx.optfind { color: var(--fg); text-underline-offset: 2px; }
+  /* A link, not a .tpx: .tpx is a quiet view toggle, and this is the one action
+     that fills the section in, so it has to stand out of the dim note around it. */
+  .tpx.optfind { color: var(--link); text-underline-offset: 2px; }
   .tpx.optfind:hover { color: var(--ch-fg); }
   .mtrack { margin: 0; }
   /* width:auto, unlike .order — the summary has to span the panel for the
@@ -645,7 +647,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.15.1</span>
+  <span id="ver">v2.15.2</span>
   <span class="who">Sean Green</span>
 </footer>
 
