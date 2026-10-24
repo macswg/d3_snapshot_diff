@@ -253,6 +253,10 @@
   .tpx:hover { color: var(--fg); }
   .optsrc .path { color: var(--fg); word-break: break-all; }
   .optwarn { color: var(--ch-fg); }
+  /* Styled as the page's links, not as .tpx: .tpx is a quiet view toggle, and
+     this is the one action that fills the section in, sitting in dim note text. */
+  .tpx.optfind { color: var(--fg); text-underline-offset: 2px; }
+  .tpx.optfind:hover { color: var(--ch-fg); }
   .mtrack { margin: 0; }
   /* width:auto, unlike .order — the summary has to span the panel for the
      right-hand meta to sit in a column instead of trailing each title. */
@@ -641,7 +645,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.15.0</span>
+  <span id="ver">v2.15.1</span>
   <span class="who">Sean Green</span>
 </footer>
 
