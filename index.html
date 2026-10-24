@@ -251,6 +251,8 @@
     color: var(--dim); font: inherit; font-size: 12px; text-decoration: underline;
   }
   .tpx:hover { color: var(--fg); }
+  .optsrc .path { color: var(--fg); word-break: break-all; }
+  .optwarn { color: var(--ch-fg); }
   .mtrack { margin: 0; }
   /* width:auto, unlike .order — the summary has to span the panel for the
      right-hand meta to sit in a column instead of trailing each title. */
@@ -591,12 +593,12 @@
   <div class="slot">
     <label>Before</label>
     <div class="drop" id="dropA" data-slot="a">Choose or drop a snapshot or .d3…</div>
-    <input type="file" id="fileA" accept=".json,.d3,application/json">
+    <input type="file" id="fileA" accept=".json,.d3,.bin,application/json" multiple>
   </div>
   <div class="slot">
     <label>After</label>
     <div class="drop" id="dropB" data-slot="b">Choose or drop a snapshot or .d3…</div>
-    <input type="file" id="fileB" accept=".json,.d3,application/json">
+    <input type="file" id="fileB" accept=".json,.d3,.bin,application/json" multiple>
   </div>
 </header>
 
@@ -639,7 +641,7 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.14.0</span>
+  <span id="ver">v2.15.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
@@ -658,11 +660,38 @@ var stamps = { a: '', b: '' };
 var keyDocs = { a: null, b: null };
 var keyNames = { a: null, b: null };
 var keyErrors = { a: null, b: null };
+// Whether the slot's snapshot came from a .d3, and -- while its options.bin is
+// still unfound -- the archive's name and file handle to look for it beside.
+var fromArchive = { a: false, b: false };
+var optWant = { a: null, b: null };
+// Why the switches the slot holds may not be its .d3's own -- an undated
+// options.bin standing in for a dated one.
+var optNote = { a: null, b: null };
 
 function wire(dropId, inputId, slot) {
   var drop = document.getElementById(dropId), input = document.getElementById(inputId);
-  drop.addEventListener('click', function () { input.click(); });
-  input.addEventListener('change', function () { if (input.files[0]) load(input.files[0], slot, drop); });
+  // The picker rather than the input where there is one, because only the
+  // picker hands back a file handle, and a .d3's handle is what lets the folder
+  // picker open beside it to find options.bin.
+  drop.addEventListener('click', function () {
+    if (!window.showOpenFilePicker) { input.click(); return; }
+    window.showOpenFilePicker({ multiple: true }).then(function (handles) {
+      return Promise.all(handles.map(function (h) {
+        return h.getFile().then(function (f) { return { file: f, handle: h }; });
+      }));
+    }).then(function (picked) {
+      loadPicked(picked, slot, drop);
+    }, function (e) {
+      if (e && e.name === 'AbortError') return;   // user closed the picker
+      fail('could not open that file: ' + e.message);
+    });
+  });
+  input.addEventListener('change', function () {
+    loadPicked(Array.prototype.map.call(input.files, function (f) {
+      return { file: f, handle: null };
+    }), slot, drop);
+    input.value = '';
+  });
   drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
   drop.addEventListener('drop', function (e) {
@@ -670,8 +699,96 @@ function wire(dropId, inputId, slot) {
     // Before as well.
     e.preventDefault(); e.stopPropagation(); drop.classList.remove('over');
     hideDropzone();
-    if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0], slot, drop);
+    droppedWithHandles(e).then(function (picked) { loadPicked(picked, slot, drop); });
   });
+}
+
+/* A drop's file handles exist only while the event is being dispatched, so they
+ * are asked for here, synchronously, and awaited after. A browser without them
+ * still gets its files, just no handle to find options.bin beside. */
+function droppedWithHandles(e) {
+  var items = Array.prototype.filter.call(e.dataTransfer.items || [], function (it) {
+    return it.kind === 'file';
+  });
+  if (!items.length) {
+    return Promise.resolve(Array.prototype.map.call(e.dataTransfer.files, function (f) {
+      return { file: f, handle: null };
+    }));
+  }
+  return Promise.all(items.map(function (it) {
+    var file = it.getAsFile();
+    var h = it.getAsFileSystemHandle ? it.getAsFileSystemHandle() : null;
+    return Promise.resolve(h).then(function (handle) {
+      return { file: file, handle: handle && handle.kind === 'file' ? handle : null };
+    }, function () { return { file: file, handle: null }; });
+  }));
+}
+
+function isOptionsFile(f) { return /\.bin$/i.test(f.name); }
+function isMachineFile(f) { return /^machine/i.test(f.name); }
+
+/* A Designer backup carries its save time in its name --
+ * moose_sphere_backup_23Oct2026_0131.d3 -- and an options.bin copied beside it
+ * at the same moment carries the same stamp: options_23Oct2026_0131.bin. The
+ * stamp is the pairing, not the file dates: a copy through a synced drive can
+ * rewrite those, and one undated options.bin shared by every backup in a folder
+ * gives each of them the switches of whenever it was last saved. Matched as the
+ * exact string, so 8Sep2026 is not 08Sep2026 -- Designer does not pad the day,
+ * and a copy named by hand to look like the backup has the same spelling. */
+var BACKUP_STAMP = /(\d{1,2}[A-Z][a-z]{2}\d{4}_\d{4})(?!\d)/;
+function backupStamp(name) {
+  var m = BACKUP_STAMP.exec(name || '');
+  return m ? m[1] : null;
+}
+function datedOptionsName(stamp) { return 'options_' + stamp + '.bin'; }
+
+/* Which options files go with the .d3 named `d3name`, as {use, note} or
+ * {error}. A copy dated for this backup wins; an undated one is taken with a
+ * note, since it is what was asked for but may not be this backup's; one dated
+ * for another backup is refused, because loading it would put another save's
+ * switches under this one with nothing on screen to say so. */
+function binsFor(d3name, bins) {
+  var machine = bins.filter(function (b) { return isMachineFile(b.file); });
+  var project = bins.filter(function (b) { return !isMachineFile(b.file); });
+  if (!project.length) return { use: machine, note: null };
+  var stamp = backupStamp(d3name);
+  var exact = stamp ? project.filter(function (b) {
+    return b.file.name.toLowerCase() === datedOptionsName(stamp).toLowerCase();
+  }) : [];
+  if (exact.length) return { use: machine.concat(exact[0]), note: null };
+  var undated = project.filter(function (b) { return !backupStamp(b.file.name); });
+  if (undated.length === 1) {
+    return { use: machine.concat(undated), note: undatedNote(stamp, undated[0].file.name) };
+  }
+  return { error: project.map(function (b) { return b.file.name; }).join(', ') +
+    (stamp ? ' not loaded: ' + d3name + ' pairs with ' + datedOptionsName(stamp) + '.'
+           : ' not loaded: ' + d3name + ' carries no date to pair an options file by, ' +
+             'and there is more than one.') };
+}
+
+function undatedNote(stamp, name) {
+  return stamp ? name + ' carries no date, so its switches are from whenever it was last ' +
+    'saved, which need not be this backup. A copy named ' + datedOptionsName(stamp) +
+    ' beside the .d3 is read in its place.' : null;
+}
+
+/* One slot's worth of picked or dropped files. An options.bin rides along with
+ * the .d3 beside it, the way a _keyframes.json rides along with its snapshot,
+ * and on its own joins the .d3 the slot already holds. A pick whose options
+ * file does not pair is refused whole, so the slot is not left half-loaded. */
+function loadPicked(picked, slot, drop) {
+  var bins = picked.filter(function (p) { return isOptionsFile(p.file); });
+  var rest = picked.filter(function (p) { return !isOptionsFile(p.file); });
+  if (rest.length) {
+    var paired = { use: bins, note: null };
+    if (bins.length && /\.d3$/i.test(rest[0].file.name)) {
+      paired = binsFor(rest[0].file.name, bins);
+      if (paired.error) { fail(paired.error); return; }
+    }
+    load(rest[0].file, slot, drop, { handle: rest[0].handle, bins: paired.use, note: paired.note });
+    return;
+  }
+  if (bins.length) attachOptions(slot, bins);
 }
 
 /* A file dropped anywhere else on the page loads as Before -- the box is a small
@@ -706,6 +823,40 @@ window.addEventListener('dragleave', function (e) {
   if (--dragDepth <= 0) hideDropzone();
 });
 window.addEventListener('dragover', function (e) { if (hasFiles(e)) e.preventDefault(); });
+/* Options files dropped with two captures. With one .d3 among them they are
+ * that archive's, paired as a single pick would be. With two, only a file dated
+ * for one of them has a home: an undated one could be either's, and guessing
+ * would put one show's switches under another. Anything without a home refuses
+ * the drop whole, rather than half-loading it with a message the loads would
+ * paint over. */
+function pairDrop(caps, bins) {
+  var pairs = caps.map(function () { return { use: [], note: null }; });
+  if (!bins.length) return { pairs: pairs };
+  var archives = caps.filter(function (p) { return /\.d3$/i.test(p.file.name); });
+  if (!archives.length) return { error: 'an options file fills in a .d3, and neither capture is one.' };
+  if (archives.length === 1) {
+    var one = binsFor(archives[0].file.name, bins);
+    if (one.error) return { error: one.error };
+    pairs[caps.indexOf(archives[0])] = one;
+    return { pairs: pairs };
+  }
+  var homeless = [];
+  bins.forEach(function (b) {
+    var home = caps.filter(function (c) {
+      var st = backupStamp(c.file.name);
+      return st && !isMachineFile(b.file) &&
+             b.file.name.toLowerCase() === datedOptionsName(st).toLowerCase();
+    });
+    if (home.length === 1) pairs[caps.indexOf(home[0])].use.push(b);
+    else homeless.push(b.file.name);
+  });
+  if (homeless.length) {
+    return { error: homeless.join(', ') + ' could belong to either .d3. Name it ' +
+      'options_<the backup\'s date>.bin to pair it, or drop it onto the box of its archive.' };
+  }
+  return { pairs: pairs };
+}
+
 // Two captures dropped together are a pair to compare, so they fill both slots,
 // older as Before. Order comes from captureTime, the rule the folder picker uses,
 // not from the order the files arrive in: that is the order they were selected
@@ -717,17 +868,25 @@ window.addEventListener('drop', function (e) {
   if (!hasFiles(e)) return;
   e.preventDefault();
   hideDropzone();
-  var files = Array.prototype.slice.call(e.dataTransfer.files);
-  var caps = files.filter(function (f) { return !/_keyframes\.json$/i.test(f.name); });
-  if (caps.length === 2) {
-    caps.sort(function (x, y) {
-      return captureTime(x).t - captureTime(y).t || x.name.localeCompare(y.name);
+  droppedWithHandles(e).then(function (picked) {
+    var caps = picked.filter(function (p) {
+      return !/_keyframes\.json$/i.test(p.file.name) && !isOptionsFile(p.file);
     });
-    load(caps[0], 'a', document.getElementById('dropA'));
-    load(caps[1], 'b', document.getElementById('dropB'));
-    return;
-  }
-  if (files[0]) load(files[0], 'a', document.getElementById('dropA'));
+    if (caps.length === 2) {
+      caps.sort(function (x, y) {
+        return captureTime(x.file).t - captureTime(y.file).t || x.file.name.localeCompare(y.file.name);
+      });
+      var paired = pairDrop(caps, picked.filter(function (p) { return isOptionsFile(p.file); }));
+      if (paired.error) { fail('Nothing loaded: ' + paired.error); return; }
+      ['a', 'b'].forEach(function (slot, i) {
+        var p = paired.pairs[i];
+        load(caps[i].file, slot, document.getElementById(slot === 'a' ? 'dropA' : 'dropB'),
+             { handle: caps[i].handle, bins: p.use, note: p.note });
+      });
+      return;
+    }
+    if (picked.length) loadPicked(picked, 'a', document.getElementById('dropA'));
+  });
 });
 
 /* Capture time for ordering, filename first.
@@ -860,7 +1019,8 @@ function readArchive(file, done) {
 // file dropped on the same slot meanwhile must win even though it finishes first.
 var loading = { a: 0, b: 0 };
 
-function load(file, slot, drop) {
+function load(file, slot, drop, extra) {
+  extra = extra || { handle: null, bins: [], note: null };
   var ticket = ++loading[slot];
   var archive = /\.d3$/i.test(file.name);
 
@@ -884,6 +1044,12 @@ function load(file, slot, drop) {
       keyNames[slot] = null;
       keyErrors[slot] = keyErr;
       accept(data);
+      if (snaps[slot] !== data) return;
+      if (extra.bins.length) {
+        extra.bins.forEach(function (b) {
+          readOptionsFile(slot, data, b.file, b.file.name, isMachineFile(b.file) ? null : extra.note);
+        });
+      } else lookForOptions(slot, null);
     });
     return;
   }
@@ -942,6 +1108,11 @@ function load(file, slot, drop) {
       }
       snaps[slot] = data;
       names[slot] = file.name;
+      // Set before the render below, so the System tab can offer to find the
+      // archive's options.bin on its first paint.
+      fromArchive[slot] = archive;
+      optWant[slot] = archive ? { name: file.name, handle: extra.handle, missed: null } : null;
+      optNote[slot] = null;
       // The build belongs on the slot itself, not in a tab: it qualifies every
       // number the capture reports, so it has to stay visible whichever tab is
       // open. The drop zones sit above the tab bar, which is what makes this
@@ -959,6 +1130,13 @@ function load(file, slot, drop) {
       drop.classList.add('filled');
       paintSlot(slot, drop);
       render();
+      // After the render, which clears the error line. A plugin capture read
+      // options.bin itself, from the live project; one picked beside it would
+      // be a second answer to the same question.
+      if (!archive && extra.bins.length) {
+        fail('options.bin was not loaded: ' + file.name + ' already carries the ' +
+             'switches the plugin read. It only fills in a .d3.');
+      }
     } catch (e) { fail(file.name + ': ' + e.message); }
   }
 }
@@ -976,7 +1154,164 @@ function paintSlot(slot, drop) {
       (keyNames[slot] && names[slot] ? ' from ' + esc(keyNames[slot]) : '') +
       ' · ' + esc(Number(k.keyCount || 0).toLocaleString()) + ' keys</span>';
   }
+  var o = fromArchive[slot] && pageReadOptions(snaps[slot]);
+  if (o && o.values) {
+    html += '<span class="stamp">switches from ' + esc(o.source) +
+      (o.modified ? ' · modified ' + esc(o.modified) : '') + '</span>';
+  }
   drop.innerHTML = html;
+}
+
+/* Option switches for a .d3 -------------------------------------------------
+ * The archive does not pack internal/options/options.bin, so the page reads it
+ * from beside the .d3 when it can. A browser never says which folder a file came
+ * from, so "beside" needs a folder the user has granted: the picker opens in the
+ * .d3's own folder, and the grant lasts until the page is reloaded, so a second
+ * archive from the same folder is found without asking again. */
+var grantedDirs = [];
+
+// The project scope only when this page filled it in -- the extractor's own
+// placeholder has no `modified`, and a plugin capture's never does.
+function pageReadOptions(snap) {
+  var o = snap && snap.system && snap.system.options && snap.system.options.project;
+  return o && o.modified ? o : null;
+}
+
+function setOptions(slot, data, scope, o) {
+  if (snaps[slot] !== data) return;   // the slot has moved on to another file
+  data.system = data.system || {};
+  data.system.options = data.system.options || {};
+  data.system.options[scope] = o;
+  if (scope === 'project' && o.values) optWant[slot] = null;
+  paintSlot(slot, document.getElementById(slot === 'a' ? 'dropA' : 'dropB'));
+  render();
+}
+
+/* `values` stays null on a file that will not decode, never {}: an unreadable
+ * file read as "nothing set" would report every switch the other capture holds
+ * as removed. machine.bin is the same format, and goes to its own scope because
+ * machine settings override project ones -- folding it in would hide which file
+ * set a switch. */
+function readOptionsFile(slot, data, file, source, note) {
+  var scope = isMachineFile(file) ? 'machine' : 'project';
+  file.text().then(function (text) {
+    if (scope === 'project' && snaps[slot] === data) optNote[slot] = note || null;
+    var o = { source: source, modified: localStamp(file.lastModified), values: null, error: null };
+    try { o.values = decodeOptions(text); }
+    catch (e) { o.error = file.name + ': ' + e.message; }
+    setOptions(slot, data, scope, o);
+  }, function (e) {
+    setOptions(slot, data, scope, { source: source, modified: localStamp(file.lastModified),
+                                    values: null, error: e.message });
+  });
+}
+
+function localStamp(ms) {
+  var d = new Date(ms || 0);
+  return window.D3Extract ? window.D3Extract.localIso(d) : d.toISOString();
+}
+
+// A dropped or picked file brings its name and date but never its folder, which
+// is why its source is the bare name.
+function attachOptions(slot, bins) {
+  var data = snaps[slot];
+  if (!data || !fromArchive[slot]) {
+    fail(bins[0].file.name + ' was not loaded: options.bin fills in the switches of a .d3, ' +
+         (data ? 'and this slot holds a plugin capture, which read its own.'
+               : 'so load the .d3 first, or pick both together.'));
+    return;
+  }
+  var paired = binsFor(names[slot], bins);
+  if (paired.error) { fail(paired.error); return; }
+  paired.use.forEach(function (b) {
+    readOptionsFile(slot, data, b.file, b.file.name, isMachineFile(b.file) ? null : paired.note);
+  });
+}
+
+/* The granted folder holding this .d3, opened down to the .d3's own folder, or
+ * null. resolve() is the only way to ask: a handle has no parent to walk up to. */
+function folderOf(handle) {
+  var i = 0;
+  function next() {
+    if (i >= grantedDirs.length) return Promise.resolve(null);
+    var root = grantedDirs[i++];
+    return root.resolve(handle).then(function (parts) {
+      if (!parts) return next();
+      var segs = parts.slice(0, -1), d = Promise.resolve(root);
+      segs.forEach(function (s) { d = d.then(function (x) { return x.getDirectoryHandle(s); }); });
+      return d.then(function (dir) {
+        return { dir: dir, path: [root.name].concat(segs).join('/') + '/' };
+      });
+    }, next);
+  }
+  return next();
+}
+
+/* The copy dated for this backup first; then a plain options.bin beside it;
+ * then where Designer keeps it, for a .d3 saved inside its own project folder.
+ * Asked for by name rather than by listing the folder: a backups folder holds
+ * hundreds of megabytes per entry and the answer is one exact name. The last
+ * two are `undated` -- they are the switches of whenever they were saved. */
+function findOptionsIn(dir, path, stamp) {
+  function plain() {
+    return dir.getFileHandle('options.bin').then(function (h) {
+      return { handle: h, path: path + 'options.bin', undated: true };
+    }, function () {
+      return dir.getDirectoryHandle('internal').then(function (d) {
+        return d.getDirectoryHandle('options');
+      }).then(function (d) {
+        return d.getFileHandle('options.bin');
+      }).then(function (h) {
+        return { handle: h, path: path + 'internal/options/options.bin', undated: true };
+      }, function () { return null; });
+    });
+  }
+  if (!stamp) return plain();
+  return dir.getFileHandle(datedOptionsName(stamp)).then(function (h) {
+    return { handle: h, path: path + datedOptionsName(stamp), undated: false };
+  }, plain);
+}
+
+/* `chosen` is a folder the user just picked for this slot. It is searched even
+ * when the .d3 is not inside it: picking the project folder for a backup saved
+ * elsewhere is a deliberate answer to "where is options.bin". */
+function lookForOptions(slot, chosen) {
+  var want = optWant[slot], data = snaps[slot];
+  if (!want || !want.handle) return;
+  folderOf(want.handle).then(function (found) {
+    if (!found && chosen) found = { dir: chosen, path: chosen.name + '/' };
+    if (!found) return;
+    var stamp = backupStamp(want.name);
+    return findOptionsIn(found.dir, found.path, stamp).then(function (hit) {
+      if (snaps[slot] !== data) return;
+      if (!hit) {
+        want.missed = found.path;
+        paintSystem();
+        return;
+      }
+      return hit.handle.getFile().then(function (f) {
+        readOptionsFile(slot, data, f, hit.path,
+                        hit.undated ? undatedNote(stamp, hit.path) : null);
+      });
+    });
+  }).catch(function (e) {
+    if (snaps[slot] === data) fail('could not look for options.bin: ' + e.message);
+  });
+}
+
+function chooseOptionsFolder(slot) {
+  var want = optWant[slot];
+  if (!want || !want.handle) return;
+  window.showDirectoryPicker({ startIn: want.handle }).then(function (dir) {
+    grantedDirs.push(dir);
+    lookForOptions(slot, dir);
+    // The other slot's .d3 may sit in the same folder; one grant should do.
+    var other = slot === 'a' ? 'b' : 'a';
+    if (optWant[other]) lookForOptions(other, null);
+  }, function (e) {
+    if (e && e.name === 'AbortError') return;
+    fail('could not read that folder: ' + e.message);
+  });
 }
 
 /* The Designer build, short enough for a header line. Falls back to '—' rather
@@ -2872,10 +3207,34 @@ function renderBuild(build) {
          flags + '<div class="kv">' + kv + '</div></section>';
 }
 
-function scopeSource(scope) {
+/* The file the switches were read from, in full. A plugin capture names the
+ * director's own path; one the page read beside a .d3 can only name it from the
+ * granted folder down, because a browser never reveals more of a path. */
+function optionsSource(scope, isMachine) {
   if (!scope.source) return '';
-  var parts = String(scope.source).split(/[\\/]/);   // \ or / -- paths are Windows
-  return parts[parts.length - 1];
+  var note = !isMachine && reportSource && fromArchive[reportSource] && optNote[reportSource];
+  return '<p class="note optsrc">from <span class="path">' + markup(scope.source) + '</span>' +
+    (scope.modified ? ' · modified ' + esc(scope.modified) : '') + '</p>' +
+    (note ? '<p class="note optwarn">' + esc(note) + '</p>' : '');
+}
+
+/* What the Project section offers while a .d3's switches are still unread. */
+function optionsPrompt() {
+  var slot = reportSource;
+  var want = slot && fromArchive[slot] && optWant[slot];
+  if (!want) return '';
+  if (want.handle && window.showDirectoryPicker) {
+    return '<p class="note">' +
+      (want.missed ? 'No ' + (backupStamp(want.name) ? esc(datedOptionsName(backupStamp(want.name))) +
+        ' or ' : '') + 'options.bin in ' + esc(want.missed) + ' or its internal/options/. ' : '') +
+      '<button type="button" class="tpx optfind">' +
+      (want.missed ? 'Choose another folder…' : 'Find options.bin beside ' + esc(want.name) + '…') +
+      '</button>' + (want.missed ? '' : ' Opens in the .d3’s folder; select it to grant ' +
+      'access, and other .d3 files there are read without asking.') +
+      ' Or drop options.bin onto the ' + (slot === 'a' ? 'Before' : 'After') + ' box.</p>';
+  }
+  return '<p class="note">Drop options.bin onto the ' + (slot === 'a' ? 'Before' : 'After') +
+    ' box, or pick it together with ' + esc(want.name) + ', to read its switches.</p>';
 }
 
 function renderSwitch(s) {
@@ -2896,19 +3255,19 @@ function renderScope(label, scope, rows, isMachine) {
     return head + '</div><p class="note">Could not read them' +
       (scope.error ? ' (' + esc(scope.error) + ')' : '') +
       '. An unread file is not an empty one — no switch listed here means ' +
-      '“not read”, not “not set”.</p></section>';
+      '“not read”, not “not set”.</p>' + optionsSource(scope, isMachine) +
+      (isMachine ? '' : optionsPrompt()) + '</section>';
   }
   if (!scope.all.length) {
-    return head + '</div><p class="empty">No switches recorded.</p></section>';
+    return head + '</div>' + optionsSource(scope, isMachine) +
+      '<p class="empty">No switches recorded.</p></section>';
   }
   var canExpand = !isMachine && !query && scope.all.length > scope.set.length;
-  var src = scopeSource(scope);
-  var meta = scope.set.length + ' set · ' + scope.all.length + ' recorded' +
-             (src ? ' · ' + src : '');
+  var meta = scope.set.length + ' set · ' + scope.all.length + ' recorded';
   return head +
     (canExpand ? '<button type="button" class="tpx sysx">' +
        (systemExpanded ? 'show only set' : 'show all') + '</button>' : '') +
-    '<span class="grow of">' + esc(meta) + '</span></div>' +
+    '<span class="grow of">' + esc(meta) + '</span></div>' + optionsSource(scope, isMachine) +
     '<div class="swlist">' + rows.map(renderSwitch).join('') + '</div></section>';
 }
 
@@ -3227,6 +3586,9 @@ wire('dropB', 'fileB', 'b');
     if (e.target.classList && e.target.classList.contains('sysx')) {
       systemExpanded = !systemExpanded;
       paintSystem();
+    }
+    if (e.target.classList && e.target.classList.contains('optfind')) {
+      chooseOptionsFolder(reportSource);
     }
   });
 })();

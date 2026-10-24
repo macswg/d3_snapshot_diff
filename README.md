@@ -538,8 +538,29 @@ reference show reported 543 tag changes that did not exist.
 An archive does not hold everything a capture does, and the diff says so rather
 than guessing:
 
-- **Option switches** are not packed into a `.d3`. They arrive as
-  `values: null`, so the pair gets the usual note and no switch lines.
+- **Option switches** are not packed into a `.d3`, so the page reads
+  `options.bin` from beside it — or from `internal/options/` under it, for an
+  archive saved inside its project folder. A browser never says which folder a
+  file came from, so the System tab offers **Find options.bin beside …**, which
+  opens the folder picker already in the `.d3`'s folder; select it once and
+  every other `.d3` there is read without asking until the page is reloaded.
+  Picking or dropping `options.bin` together with the `.d3` (or onto its slot
+  afterwards) works in any browser.
+  A copy dated for the backup wins over a plain one: beside
+  `moose_sphere_backup_23Oct2026_0131.d3`, `options_23Oct2026_0131.bin` is read
+  first. The stamp in the name is the pairing, matched exactly, because one
+  undated `options.bin` shared by a folder of backups gives every one of them the
+  switches of whenever it was last saved — which makes a diff of two backups
+  report no switch changes whatever happened between them. An undated file is
+  still used when there is no dated one, with a note saying so; one dated for a
+  different backup is refused. Dropping two `.d3` files with their dated copies
+  pairs each with its own. The System tab names the file it read and
+  its modified date, as `<folder>/options.bin` — the browser reveals nothing
+  above the folder you granted, and a dropped file brings only its name. Until
+  one is found the switches stay `values: null`, so the pair gets the usual
+  note and no switch lines; a file that will not decode stays null too, never
+  "nothing set". An `options.bin` is refused for a plugin capture, which read
+  its own.
 - **The project name** is the file name, and **the capture time** is when the
   file was last saved. The slot's tooltip says this. Against a plugin capture, a
   `project` change usually means the file was named differently.

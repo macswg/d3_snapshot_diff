@@ -1397,6 +1397,69 @@ check('the source path rides along so the tab can name the file it read',
       /options\.bin$/.test(sysS.project.source || ''), sysS.project.source);
 }
 
+/* options.bin as the page reads it beside a .d3. Encoded the long way round,
+ * as the plugin's own test does, so a decoder "simplified" to a plain hex
+ * decode fails here rather than turning every switch name into noise. The real
+ * corpus map is the payload when there is one: 125 names nobody hand-picked. */
+function encodeOptions(text) {
+  return text.split('').map(function (c) {
+    var o = c.charCodeAt(0), sw = ((o & 0x0f) << 4) | (o >> 4);
+    return (sw < 16 ? '0' : '') + sw.toString(16);
+  }).join('');
+}
+var optMap = S ? S.system.options.project.values
+               : { additionalCommandLatency: '2', useLegacySLCRegionTag: '1' };
+var optText = Object.keys(optMap).sort().map(function (k) {
+  return optMap[k] === '' ? k : k + ' ' + optMap[k];
+}).join('\n') + '\n';
+var decoded = diff.decodeOptions(encodeOptions(optText) + '\r\n');
+check('options.bin decodes to the same name/value map the plugin records' +
+      (S ? ' (' + Object.keys(optMap).length + ' real switches)' : ' (no real switches in corpus)'),
+      JSON.stringify(decoded) === JSON.stringify(
+        Object.keys(optMap).sort().reduce(function (m, k) { m[k] = String(optMap[k]); return m; }, {})),
+      JSON.stringify(decoded).slice(0, 200));
+check('a switch with no value decodes to "", not dropped and not a number',
+      diff.decodeOptions(encodeOptions('bareSwitch\nlatency 02\n')).bareSwitch === '' &&
+      diff.decodeOptions(encodeOptions('latency 02\n')).latency === '02');
+// The census rule again: the page turns this throw into values: null. A file
+// that will not decode returning {} would read as "nothing set" and report
+// every switch the other capture holds as removed.
+check('a file that is not options.bin throws rather than decoding to {}',
+      (function () {
+        try { diff.decodeOptions('not hex at all'); return false; } catch (e) { return true; }
+      })());
+/* A real options.bin, when one is reachable: beside the corpus archive, which is
+ * where the page looks first, or in or above a listed corpus folder, because
+ * snapshots get filed in a subfolder of the backups folder that holds it. The
+ * encoded fixture above cannot catch a real file's case or line endings. */
+function findOptionsBin() {
+  var dirs = [];
+  localCandidates().concat([LOGS]).forEach(function (d) { dirs.push(d, path.dirname(d)); });
+  var arch = findArchive();
+  if (arch) dirs.unshift(path.dirname(arch));
+  for (var i = 0; i < dirs.length; i++) {
+    var f = path.join(dirs[i], 'options.bin');
+    try { if (fs.statSync(f).size > 0) return f; } catch (e) { /* not there */ }
+  }
+  return null;
+}
+var realBin = findOptionsBin();
+if (!realBin) {
+  console.log('  --   no options.bin beside the archive or the corpus, so the real-file ' +
+              'decode case did not run');
+} else {
+  var realOpts = diff.decodeOptions(fs.readFileSync(realBin, 'utf8'));
+  var realNames = Object.keys(realOpts);
+  check('a real options.bin decodes to ' + realNames.length + ' well-formed switch names',
+        realNames.length > 100 && realNames.every(function (n) { return /^[A-Za-z]\w*$/.test(n); }),
+        realNames.filter(function (n) { return !/^[A-Za-z]\w*$/.test(n); }).slice(0, 3).join(' | '));
+}
+
+check('a page-read file date rides through to the report',
+      diff.systemReport({ system: { options: { project: {
+        source: 'show/options.bin', modified: '2026-10-23T09:00:00-07:00', values: {} } } } })
+        .project.modified === '2026-10-23T09:00:00-07:00');
+
 check('a capture with no system block does not throw and reports no build',
       (function () {
         var e = diff.systemReport({ tracks: [] });

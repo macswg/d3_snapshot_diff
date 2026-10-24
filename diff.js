@@ -1055,7 +1055,9 @@ function transportReport(snap) {
  *   project: SCOPE, machine: SCOPE,
  *   totals: {set, recorded}
  * } where SCOPE is
- *   {unread, source, error, set:[ROW], all:[ROW]}, ROW = {name, value, isDefault}.
+ *   {unread, source, modified, error, set:[ROW], all:[ROW]},
+ *   ROW = {name, value, isDefault}. `modified` is set only when the page read
+ *   options.bin itself, beside a .d3; a plugin capture has no file date to give.
  *
  * Two rules the plugin already enforces and the report must not undo:
  *   - `unread` (values === null) is "could not read the file", NOT an empty set.
@@ -1097,8 +1099,8 @@ function systemReport(snap) {
   function scope(o) {
     o = o || {};
     if (o.values === null || o.values === undefined) {
-      return { unread: true, source: o.source || null, error: o.error || null,
-               set: [], all: [] };
+      return { unread: true, source: o.source || null, modified: o.modified || null,
+               error: o.error || null, set: [], all: [] };
     }
     var names = [], all = [], set = [];
     for (var k in o.values) names.push(k);
@@ -1110,8 +1112,8 @@ function systemReport(snap) {
       all.push(row);
       if (!isDefault) set.push(row);
     });
-    return { unread: false, source: o.source || null, error: null,
-             set: set, all: all };
+    return { unread: false, source: o.source || null, modified: o.modified || null,
+             error: null, set: set, all: all };
   }
 
   var opts = sys.options || {};
@@ -1123,6 +1125,36 @@ function systemReport(snap) {
     totals: { set: project.set.length + machine.set.length,
               recorded: project.all.length + machine.all.length }
   };
+}
+
+/* options.bin, as the plugin's `_decode_options` reads it, for the page to fill
+ * in a .d3's switches from the file beside it. ASCII hex text whose decoded
+ * bytes are nibble-swapped ASCII, then sorted `name value` lines.
+ *
+ * Throws rather than returning {} on anything that is not hex: the caller turns
+ * a throw into `values: null`, and an unreadable file read as "nothing set"
+ * would report every switch the other capture holds as removed. Values stay
+ * strings verbatim, as the plugin keeps them -- coercing would make 0, off and
+ * false one value in a diff. */
+function decodeOptions(text) {
+  var hex = String(text).replace(/^\s+|\s+$/g, '');
+  if (hex.length % 2 || /[^0-9a-f]/i.test(hex)) {
+    throw new Error('not an options file: expected hex text');
+  }
+  var plain = '';
+  for (var i = 0; i < hex.length; i += 2) {
+    var c = parseInt(hex.substr(i, 2), 16);
+    plain += String.fromCharCode(((c & 0x0f) << 4) | (c >> 4));
+  }
+  var values = {};
+  plain.split('\n').forEach(function (line) {
+    line = line.replace(/^\s+|\s+$/g, '');
+    if (!line) return;
+    var sp = line.indexOf(' ');
+    if (sp < 0) values[line] = '';
+    else values[line.slice(0, sp)] = line.slice(sp + 1).replace(/^\s+|\s+$/g, '');
+  });
+  return values;
 }
 
 /* Keyframes ----------------------------------------------------------------
@@ -1897,7 +1929,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
                      mediaReport: mediaReport, cueReport: cueReport,
                      transportReport: transportReport,
-                     systemReport: systemReport, exportDiff: exportDiff,
+                     systemReport: systemReport, decodeOptions: decodeOptions,
+                     exportDiff: exportDiff,
                      keyframeReport: keyframeReport, timecodeAt: timecodeAt,
                      cdlSwatch: cdlSwatch, gradeRgb: gradeRgb,
                      matchBy: matchBy, orderDiff: orderDiff, fmt: fmt,

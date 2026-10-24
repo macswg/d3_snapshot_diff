@@ -31,7 +31,8 @@ tools/deploy.sh   Version bump, commit, push, wait for Pages.
 `diff.js` exports its entry points under CommonJS and as page globals:
 `diffSnapshots(a, b, keys)` (`keys` optional, `{a, b}` keyframes documents), `summarize(result)`, `mediaReport(snap)`, `cueReport(snap)`,
 `keyframeReport(keys, snap)`, `timecodeAt(track, t)`,
-`transportReport(snap)`, `systemReport(snap)`, and
+`transportReport(snap)`, `systemReport(snap)`, `decodeOptions(text)` (an
+`options.bin` beside a `.d3`, decoded as the plugin's `_decode_options` does), and
 `exportDiff(result, a, b, names, generatedAt)` behind the Export JSON button.
 The export's `about` list is its reading rules for a model or script; when one
 of the distinctions below changes, that list changes with it.
