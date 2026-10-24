@@ -627,8 +627,7 @@
          autocomplete="off" spellcheck="false">
   <span id="matches"></span>
   <button type="button" id="fold" hidden>collapse tracks</button>
-  <button type="button" id="export" hidden
-          title="Download the whole diff as JSON, ignoring the search box">Export JSON</button>
+  <button type="button" id="export" hidden></button>
 </div>
 
 <section id="summary" hidden></section>
@@ -647,14 +646,14 @@
 <footer>
   <!-- tools/deploy.sh rewrites the text of #ver on every deploy. Its regex
        expects `v<major>.<minor>.<patch>` here and nothing else. -->
-  <span id="ver">v2.15.2</span>
+  <span id="ver">v2.16.0</span>
   <span class="who">Sean Green</span>
 </footer>
 
 <script src="diff.js"></script>
 <script>
 var snaps = { a: null, b: null };
-// Only the export reads these: it names its sources, and a capture's own fields
+// Only the exports read these: they name their sources, and a capture's own fields
 // do not include the file it was read from.
 var names = { a: null, b: null };
 // The slot's snapshot line, built when the snapshot arrives and kept so the
@@ -3481,7 +3480,9 @@ function setTab(name) {
     !(changes && lastResult && lastResult.nodes.length);
   document.getElementById('notes').hidden = !(changes && hasNotes);
   document.getElementById('q').placeholder = PLACEHOLDER[tab];
-  document.getElementById('export').hidden = !(changes && lastResult);
+  var ex = EXPORTS[tab], exBtn = document.getElementById('export');
+  exBtn.hidden = !(ex && ex.ready());
+  if (ex) { exBtn.textContent = ex.label; exBtn.title = ex.title; }
   document.getElementById('fold').hidden = !(changes && lastResult && lastResult.nodes.length);
 
   var m = lastReport ? lastReport.totals : null;
@@ -3600,16 +3601,9 @@ wire('dropB', 'fileB', 'b');
 })();
 
 /* A Blob and an a[download] rather than anything fancier: it is the one save
- * route that works from file:// as well as from the hosted page. The name is
- * built from the capture times, which already sort, so a folder of exports
- * lines up the way the captures do. */
-function exportJson() {
-  if (!lastResult) return;
-  var doc = exportDiff(lastResult, snaps.a, snaps.b, names, new Date().toISOString());
-  function stamp(s) { return String(s || 'unknown').replace(/[^0-9A-Za-z_-]+/g, '-'); }
-  var file = 'diff_' + stamp(snaps.a.capturedAt) + '_to_' + stamp(snaps.b.capturedAt) + '.json';
-  var url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)],
-                                         { type: 'application/json' }));
+ * route that works from file:// as well as from the hosted page. */
+function download(text, file, type) {
+  var url = URL.createObjectURL(new Blob([text], { type: type }));
   var a = document.createElement('a');
   a.href = url;
   a.download = file;
@@ -3620,7 +3614,45 @@ function exportJson() {
   // asynchronously and a URL revoked under them saves nothing.
   setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 }
-document.getElementById('export').addEventListener('click', exportJson);
+
+function fileStamp(s) { return String(s || 'unknown').replace(/[^0-9A-Za-z_-]+/g, '-'); }
+
+// Names are built from the capture times, which already sort, so a folder of
+// exports lines up the way the captures do.
+function exportJson() {
+  var doc = exportDiff(lastResult, snaps.a, snaps.b, names, new Date().toISOString());
+  download(JSON.stringify(doc, null, 2),
+           'diff_' + fileStamp(snaps.a.capturedAt) + '_to_' + fileStamp(snaps.b.capturedAt) + '.json',
+           'application/json');
+}
+
+// The capture the tab is showing, not a fresh choice: exporting a different
+// slot from the one on screen would hand over numbers nobody looked at.
+function exportTransports() {
+  var snap = snaps[reportSource];
+  var md = transportMarkdown(snap, { file: names[reportSource],
+                                     slot: reportSource === 'a' ? 'Before' : 'After',
+                                     generatedAt: new Date().toISOString() });
+  download(md, 'transports_' + fileStamp(snap.project) + '_' + fileStamp(snap.capturedAt) + '.md',
+           'text/markdown');
+}
+
+// One button, relabelled per tab, so a tab gains an export by gaining an entry
+// here. Each exports everything whatever the search box holds: an export that
+// quietly honoured a forgotten query would hand someone half the data labelled
+// as all of it.
+var EXPORTS = {
+  changes: { label: 'Export JSON', run: exportJson,
+             title: 'Download the whole diff as JSON, ignoring the search box',
+             ready: function () { return !!lastResult; } },
+  transports: { label: 'Export Markdown', run: exportTransports,
+                title: 'Download every transport and its running order as Markdown, ' +
+                       'ignoring the search box',
+                ready: function () { return !!lastTransports; } }
+};
+document.getElementById('export').addEventListener('click', function () {
+  if (EXPORTS[tab] && EXPORTS[tab].ready()) EXPORTS[tab].run();
+});
 
 (function () {
   var out = document.getElementById('out'), btn = document.getElementById('fold');

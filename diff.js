@@ -1046,6 +1046,87 @@ function transportReport(snap) {
   return { transports: transports, totals: totals };
 }
 
+/* The Transport info tab as Markdown, for a reader that is not this page.
+ *
+ * Every transport and every track, whatever the search box holds -- the same
+ * rule as the JSON export, for the same reason. Names arrive already marked by
+ * transportReport, so `B` and `B⏎` stay two rows here as they do on screen.
+ *
+ * `source` is {file, slot, generatedAt}; the time is passed in so the self-test
+ * can compare two runs. The slot is always named, unlike the tab's tally: a file
+ * read later has no page beside it to say which default applied.
+ */
+var TRANSPORT_MD_ABOUT = [
+  'Tracks are listed in running order: the order of the setlist each transport is loaded with. `#` is the position in that order.',
+  'A track on several setlists is listed under every transport that plays it, so the track total counts appearances, not distinct tracks.',
+  '`missing` means the setlist names a track this capture does not hold. `in the trash` means the track is still on the setlist but has been moved to the trash in Designer.',
+  'Whitespace a name carries that would otherwise be invisible is marked: ␣ space, ⇥ tab, ⏎ newline, \\uXXXX for any other. Two names differing only by such a mark are different tracks.',
+  'Length is minutes:seconds. — means the capture did not record the value.'
+];
+
+function transportMarkdown(snap, source) {
+  snap = snap || {};
+  source = source || {};
+  var rep = transportReport(snap);
+  var b = snap.system && snap.system.build;
+
+  // A line break in a name would end a table row or a heading early. Names are
+  // marked already; this covers the fields that are not, like an error string.
+  function line(v) {
+    return String(v === null || v === undefined ? '' : v).replace(/\r\n|\r|\n/g, '⏎');
+  }
+  function cell(v) { return line(v).replace(/\|/g, '\\|'); }
+  function clock(s) {
+    if (s === null || s === undefined) return '—';
+    var t = Math.max(0, Math.round(s)), r = t % 60;
+    return Math.floor(t / 60) + ':' + (r < 10 ? '0' : '') + r;
+  }
+
+  var out = ['# Transport info — ' + line(snap.project || 'unknown project'), ''];
+  out.push('- Captured: ' + line(snap.capturedAt || '—'));
+  out.push('- Designer: ' + line((b && b.version) || '—'));
+  if (source.file || source.slot) {
+    out.push('- Source: ' + line(source.file || 'unnamed file') +
+             (source.slot ? ' (' + source.slot + ')' : ''));
+  }
+  if (source.generatedAt) out.push('- Exported: ' + line(source.generatedAt));
+  out.push('- Totals: ' + plural(rep.totals.transports, 'transport') + ' · ' +
+           plural(rep.totals.tracks, 'track'));
+  out.push('', '## Reading this file', '');
+  TRANSPORT_MD_ABOUT.forEach(function (s) { out.push('- ' + s); });
+
+  if (!rep.transports.length) out.push('', 'This snapshot holds no transports.');
+
+  rep.transports.forEach(function (tr, i) {
+    var trashed = tr.tracks.filter(function (t) { return t.trashed; }).length;
+    var faults = [];
+    if (tr.missingCount) faults.push(tr.missingCount + ' missing');
+    if (trashed) faults.push(trashed + ' in the trash');
+
+    out.push('', '## ' + (i + 1) + '. ' + line(tr.name), '');
+    out.push('- Setlist: ' + (tr.setlist ? line(tr.setlist) : 'no setlist'));
+    if (tr.error) out.push('- Error: ' + line(tr.error));
+    out.push('- Tracks: ' + tr.tracks.length + (faults.length ? ' (' + faults.join(', ') + ')' : ''));
+    out.push('');
+    if (!tr.tracks.length) { out.push('Nothing on this setlist.'); return; }
+
+    out.push('| # | Track | Id | Length | BPM | Status |');
+    out.push('|--:|---|---|--:|--:|---|');
+    tr.tracks.forEach(function (t, k) {
+      var status = [];
+      if (t.missing) status.push('missing');
+      if (t.trashed) status.push('in the trash');
+      // The id is marked here though transportReport leaves it raw: raw is for
+      // the page, which keys rows on it. In a file it is only ever read.
+      out.push('| ' + (k + 1) + ' | ' + cell(t.name) + ' | ' + cell(showWhitespace(t.id)) +
+               ' | ' + clock(t.lengthInSec) + ' | ' + (t.bpm === null ? '—' : fmt(t.bpm)) +
+               ' | ' + status.join(', ') + ' |');
+    });
+  });
+
+  return out.join('\n') + '\n';
+}
+
 /* The environment a capture was read in: the Designer build and the option
  * switches. Single-snapshot, like the two reports above -- it describes one
  * capture, not a comparison.
@@ -1929,6 +2010,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { diffSnapshots: diffSnapshots, summarize: summarize,
                      mediaReport: mediaReport, cueReport: cueReport,
                      transportReport: transportReport,
+                     transportMarkdown: transportMarkdown,
                      systemReport: systemReport, decodeOptions: decodeOptions,
                      exportDiff: exportDiff,
                      keyframeReport: keyframeReport, timecodeAt: timecodeAt,

@@ -1260,6 +1260,49 @@ check('a transport with no trackRefs returns an empty track list',
 check('an entirely empty snapshot does not throw',
       (function () { return diff.transportReport({}).totals.transports === 0; })());
 
+console.log('\ntransport info as Markdown');
+// What a later script splits on is the table: a name that ends a row early or
+// adds a column hands it the wrong track, so rows are counted by structure.
+function mdRows(md) {
+  return md.split('\n').filter(function (l) { return /^\| \d+ \|/.test(l); });
+}
+// Columns by unescaped pipe: `\|` inside a name is not a separator.
+function mdCols(row) { return row.replace(/\\\|/g, '').split('|').length - 2; }
+
+var tmd = diff.transportMarkdown(A, { file: 'a.json', slot: 'After', generatedAt: 'fixed' });
+check('every transport gets a heading and every listed track a row',
+      (tmd.match(/^## \d+\. /mg) || []).length === trep.totals.transports &&
+      mdRows(tmd).length === trep.totals.tracks,
+      (tmd.match(/^## \d+\. /mg) || []).length + ' headings, ' + mdRows(tmd).length + ' rows');
+check('rows follow the running order of the tab',
+      (function () {
+        var first = trep.transports.filter(function (t) { return t.tracks.length; })[0];
+        if (!first) return true;
+        var at = tmd.indexOf('| 1 | ' + first.tracks[0].name.replace(/\|/g, '\\|') + ' |');
+        return at > tmd.indexOf(first.name);
+      })());
+check('it names the capture and the slot it was read from',
+      tmd.indexOf('- Source: a.json (After)') >= 0 && tmd.indexOf('## Reading this file') >= 0);
+
+var dirtyMd = JSON.parse(JSON.stringify(A));
+dirtyMd.tracks = [{ id: 'p', name: 'left | right', lengthInSec: 61, bpm: 120 },
+                  { id: 'n', name: 'B\n', lengthInSec: null, bpm: null }];
+dirtyMd.transports = [{ name: 'only', setlist: 'x', trackRefs: ['p', 'n', 'gone'] }];
+var dmd = diff.transportMarkdown(dirtyMd, {});
+check('a pipe or a newline in a name keeps every row six columns wide',
+      mdRows(dmd).length === 3 &&
+      mdRows(dmd).every(function (r) { return mdCols(r) === 6; }) &&
+      dmd.indexOf('left \\| right') >= 0 && dmd.indexOf('B⏎') >= 0,
+      JSON.stringify(mdRows(dmd)));
+check('a dangling trackRef is a row that says missing, and the count says so too',
+      /\| 3 \| gone \| gone \| — \| — \| missing \|/.test(dmd) &&
+      dmd.indexOf('- Tracks: 3 (1 missing)') >= 0, dmd);
+check('a snapshot with no transports says so instead of printing nothing',
+      diff.transportMarkdown({}, {}).indexOf('This snapshot holds no transports.') >= 0);
+check('the Markdown is deterministic, so two runs of one capture compare equal',
+      tmd === diff.transportMarkdown(JSON.parse(JSON.stringify(A)),
+                                     { file: 'a.json', slot: 'After', generatedAt: 'fixed' }));
+
 console.log('\nthe v6 system block');
 /* The build and the option switches. Mutations off the real corpus rather than
  * hand-built captures: the switch map is 125 real entries, and the case that

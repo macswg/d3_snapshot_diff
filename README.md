@@ -592,6 +592,17 @@ without them invites it to re-derive the wrong answer from correct data.
 
 The format is tagged `d3-snapshot-diff/1`; change the tag if the shape changes.
 
+**Export Markdown**, in the same place on the Transport info tab, downloads that
+tab as a `.md` file: one heading per transport with its setlist, then a table of
+its tracks in running order (position, name, id, length, BPM, and `missing` or
+`in the trash`). It reads the same capture the tab does — After, else Before —
+and names that slot in the header, since a file read later has no tally beside
+it to say which applied. The search box is ignored on the same terms as the
+JSON. A short *Reading this file* list carries the rules a new reader would get
+wrong: a track counted under every transport that plays it, and `B` and `B⏎` as
+two tracks. A `|` in a name is escaped so it cannot add a column, and a newline
+is marked so it cannot end a row.
+
 ## Logs on a shared drive
 
 Google Drive for desktop mounts Drive as an ordinary folder
